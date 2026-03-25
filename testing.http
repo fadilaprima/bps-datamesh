@@ -1,0 +1,76 @@
+### ============================================================
+### CORE DOMAIN: DATA SOSIAL EKONOMI (Port 8000)
+### ============================================================
+
+# @name GetRegistry
+GET http://localhost:8000/api/v1/social-economy/registry
+Accept: application/json
+
+###
+
+# @name StitchingProfile
+# Ganti NIK sesuai data yang ada di DB Kependudukan kamu
+GET http://localhost:8000/api/v1/social-economy/profil-lengkap/1234567890123456
+Accept: application/json
+
+
+### ============================================================
+### SUPPORTING DOMAIN: PENDIDIKAN (Port 8082)
+### ============================================================
+
+# 1. Register Skema (Metadata)
+POST http://localhost:8082/api/v1/domains/pendidikan/schemas/latest
+Content-Type: application/json
+
+{
+    "fields": ["nik", "nama_sekolah", "jenjang", "status_lulus"]
+}
+
+###
+
+# 2. Ingest Data (Upload)
+POST http://localhost:8082/api/v1/domains/pendidikan/submissions
+Content-Type: application/json
+
+{
+    "nik": "1234567890123456",
+    "nama_sekolah": "SMA Negeri 1 Jakarta",
+    "jenjang": "SMA",
+    "status_lulus": true
+}
+
+###
+
+# 3. Cek Scoring & Quality
+GET http://localhost:8082/api/v1/domains/pendidikan/submissions/SUB123/scoring
+
+###
+
+# 4. Get All Datasets (Catalog)
+# Bisa pilih variabel secara dinamis pakai ?fields=
+GET http://localhost:8082/api/v1/domains/pendidikan/datasets?fields=nik,nama_sekolah
+
+###
+
+# 5. Get Specific Dataset
+GET http://localhost:8082/api/v1/domains/pendidikan/datasets/1234567890123456
+
+###
+
+# 6. Koreksi Data (SCD Type 2)
+PUT http://localhost:8082/api/v1/domains/pendidikan/datasets/1234567890123456
+Content-Type: application/json
+
+{
+    "nama_sekolah": "SMA Negeri 2 Jakarta (Koreksi)"
+}
+
+###
+
+# 7. Audit Samples
+GET http://localhost:8082/api/v1/domains/pendidikan/audit/samples
+
+###
+
+# 8. Soft Delete
+DELETE http://localhost:8082/api/v1/domains/pendidikan/datasets/1234567890123456
