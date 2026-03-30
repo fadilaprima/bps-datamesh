@@ -1,95 +1,117 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"pendidikan/models"
 	"pendidikan/storage"
 	"strconv"
-	
+
+	"gorm.io/datatypes"
 )
 
 type PendidikanService struct {
 	Storage storage.PendidikanStorage
 }
 
+// PendidikanSourceRegistry menentukan otoritas sumber data
 var PendidikanSourceRegistry = map[string]struct {
-	IsWali     bool
-	TrustScore float64
+	IsWali bool
 }{
-	"KEMENDIKBUD": {IsWali: true, TrustScore: 1.0},
-	"KEMENAG":     {IsWali: false, TrustScore: 0.9},
-	"BPS":         {IsWali: false, TrustScore: 0.8},
+	"KEMENDIKBUD": {IsWali: true},
+	"KEMENAG":      {IsWali: true},
+	"BPS":          {IsWali: false},
+	"NGANJUK_KAB":  {IsWali: true},
 }
 
-// --- 2. METADATA VALIDATOR (KODE ASLI ARSITEK) ---
-func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidikan) (bool, string) {
-	if len(p.NIK) != 16 { return false, "nomor_induk_kependudukan harus 16 digit" }
+// ValidatePendidikanMetadata melakukan validasi isi data berdasarkan aturan di database (Dinamis)
+func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidikan, definition datatypes.JSON) (bool, string) {
+	// 1. Parsing Aturan dari Skema Aktif
+	var rulesMap map[string]interface{}
+	if err := json.Unmarshal(definition, &rulesMap); err != nil {
+		return false, "Gagal membaca aturan metadata dari skema"
+	}
 
-	if p.Partisipasi != "" {
-		if len(p.Partisipasi) > 2 { return false, "partisipasi_sekolah maksimal 2 digit" }
-		if p.Partisipasi != "1" && p.Partisipasi != "2" && p.Partisipasi != "3" {
-			return false, "partisipasi_sekolah harus kode 1, 2, atau 3"
+	rules, hasRules := rulesMap["rules"].(map[string]interface{})
+	if !hasRules {
+		return true, "" // Jika tidak ada rules di skema, dianggap lolos validasi teknis
+	}
+
+	// 2. VALIDASI NIK (Dinamis sesuai angka 'length' di JSON)
+	if r, ok := rules["nik"].(map[string]interface{}); ok {
+		if lengthVal, ok := r["length"].(float64); ok {
+			if len(p.NIK) != int(lengthVal) {
+				return false, fmt.Sprintf("NIK harus %d digit (Aturan Skema Aktif)", int(lengthVal))
+			}
 		}
 	}
 
-	if p.Jenjang != "" {
-		val, _ := strconv.Atoi(p.Jenjang)
-		if val < 1 || val > 22 { return false, "jenjang_tertinggi harus kode 1 s.d 22" }
+	// 3. VALIDASI JENJANG (Dinamis sesuai angka 'max' di JSON)
+	if r, ok := rules["jenjang"].(map[string]interface{}); ok {
+		if maxVal, ok := r["max"].(float64); ok {
+			val, _ := strconv.Atoi(p.Jenjang)
+			if val > int(maxVal) {
+				return false, fmt.Sprintf("Kode jenjang pendidikan tidak boleh lebih dari %d", int(maxVal))
+			}
+		}
 	}
 
-	if p.Kelas != "" {
-		val, _ := strconv.Atoi(p.Kelas)
-		if val < 1 || val > 8 { return false, "kelas_tertinggi harus kode 1 s.d 8" }
+	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (AdditionalInfo)
+	// Kita cek apakah ada atribut di AdditionalInfo yang diwajibkan oleh skema
+	var extra map[string]interface{}
+	json.Unmarshal(p.AdditionalInfo, &extra)
+
+	for field, rule := range rules {
+		r, ok := rule.(map[string]interface{})
+		if !ok { continue }
+
+		// Jika di skema bilang field ini "required", tapi di struct utama gak ada (berarti di extra)
+		if r["required"] == true {
+			// Cek apakah field ini adalah salah satu kolom tetap
+			isFixedColumn := (field == "nik" || field == "partisipasi" || field == "jenjang" || field == "kelas" || field == "ijazah")
+			
+			if !isFixedColumn {
+				if val, exists := extra[field]; !exists || val == "" {
+					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi sesuai skema", field)
+				}
+			}
+		}
 	}
 
-	if p.Ijazah != "" {
-		val, _ := strconv.Atoi(p.Ijazah)
-		if val < 1 || val > 23 { return false, "ijazah_tertinggi harus kode 01 s.d 23" }
-	}
 	return true, ""
 }
 
-// --- 3. LOGIKA INGESTI & RULE-BASED MERGE (SCD TYPE 2) ---
+// ProcessIngestion mengelola logika SCD Type 2 (Versioning)
 func (s *PendidikanService) ProcessIngestion(p models.RiwayatPendidikan) (string, error) {
-	lastVersion, err := s.Storage.GetLatestByNIK(p.NIK)
+	// 1. Cari data terakhir di Mesh untuk NIK ini
+	last, err := s.Storage.GetLatestByNIK(p.NIK)
 
+	// Jika data belum pernah ada (v1)
 	if err != nil {
 		p.Version = 1
-		return "Sukses v1", s.Storage.Create(&p)
-	}
-
-	// Hukum Anti-Regresi: Tahun Terbaru Tetap Masuk
-	isNewerData := p.ReferenceDate.After(lastVersion.ReferenceDate)
-	isSameDate := p.ReferenceDate.Equal(lastVersion.ReferenceDate)
-	isHigherAuthority := p.IsWaliData && !lastVersion.IsWaliData
-	isHigherScore := p.TrustScore > lastVersion.TrustScore
-
-	canCreateNewVersion := isNewerData || (isSameDate && (isHigherAuthority || isHigherScore))
-
-	if canCreateNewVersion {
-		newVersion := *lastVersion
-		newVersion.ID = 0
-		newVersion.Version = lastVersion.Version + 1
-		newVersion.ReferenceDate = p.ReferenceDate
-		newVersion.SourceID = p.SourceID
-		newVersion.TrustScore = p.TrustScore
-		newVersion.IsWaliData = p.IsWaliData
-
-		// RULE-BASED MERGE: Jahitan Sesuai Otoritas Sumber
-		switch p.SourceID {
-		case "KEMENDIKBUD", "KEMENAG":
-			newVersion.Partisipasi = p.Partisipasi
-			newVersion.Jenjang = p.Jenjang
-			newVersion.Kelas = p.Kelas
-			newVersion.Ijazah = p.Ijazah
-		case "BPS":
-			newVersion.Partisipasi = p.Partisipasi
-			newVersion.Kelas = p.Kelas
-		default:
-			newVersion.Partisipasi = p.Partisipasi
+		p.AuditStatus = "PENDING"
+		if errCreate := s.Storage.Create(&p); errCreate != nil {
+			return "Error", errCreate
 		}
-
-		return fmt.Sprintf("Sukses v%d", newVersion.Version), s.Storage.Create(&newVersion)
+		return "Sukses v1", nil
 	}
-	return "Abaikan: Data Outdated", fmt.Errorf("outdated")
+
+	// 2. LOGIKA ANTI-REGRESI (SCD Type 2)
+	// Data baru diterima jika: Tanggal lebih baru ATAU (Tanggal sama tapi pengirim adalah Walidata)
+	isNewer := p.ReferenceDate.After(last.ReferenceDate)
+	isHigherAuthority := p.ReferenceDate.Equal(last.ReferenceDate) && p.IsWaliData && !last.IsWaliData
+
+	if isNewer || isHigherAuthority {
+		// Buat versi baru
+		p.ID = 0 // Reset ID agar auto-increment di DB
+		p.Version = last.Version + 1
+		p.AuditStatus = "PENDING" // Reset audit untuk pemeriksaan data baru
+		
+		if errCreate := s.Storage.Create(&p); errCreate != nil {
+			return "Error", errCreate
+		}
+		return fmt.Sprintf("Sukses v%d", p.Version), nil
+	}
+
+	return "Abaikan", fmt.Errorf("data lebih lama dibandingkan data di database")
 }

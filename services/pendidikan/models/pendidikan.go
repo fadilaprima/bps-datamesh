@@ -1,6 +1,8 @@
 package models
 
 import "time"
+import "gorm.io/datatypes"
+
 
 type RiwayatPendidikan struct {
 	ID          uint   `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -10,6 +12,7 @@ type RiwayatPendidikan struct {
 	Kelas       string `gorm:"column:kelas_tertinggi_yang_diduduki" json:"kelas_tertinggi_yang_diduduki" parquet:"name=kelas_tertinggi_yang_diduduki, type=UTF8"`
 	Ijazah      string `gorm:"column:ijazah_tertinggi_yang_dimiliki" json:"ijazah_tertinggi_yang_dimiliki" parquet:"name=ijazah_tertinggi_yang_dimiliki, type=UTF8"`
 
+	AdditionalInfo datatypes.JSON `gorm:"column:additional_info" json:"additional_info"`
 	// Metadata Versioning & Data Mesh Lifecycle
 	Version       int       `gorm:"column:version" json:"version"`
 	SourceID      string    `gorm:"column:source_id" json:"source_id" parquet:"name=source_id, type=UTF8"`
