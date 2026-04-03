@@ -2,21 +2,27 @@ package main
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"kependudukan/database"
 	"kependudukan/internal/app"
 	"kependudukan/internal/handler"
 	"kependudukan/models"
 	"kependudukan/storage"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"gorm.io/gorm"
 )
 
 func main() {
-	// 1. Inisialisasi Koneksi Database (Spesifik Domain Kependudukan)
+	// 1. Inisialisasi Koneksi Database (Domain Kependudukan)
 	db := database.InitDB()
+
+	// AUTOMIGRATE: Sinkronisasi tabel Metadata (Schema) dan Data (Penduduk)
+	db.AutoMigrate(&models.Schema{}, &models.Penduduk{})
 
 	// 2. Inisialisasi Layer Architecture (Dependency Injection)
 	pendudukRepo := storage.PendudukStorage{DB: db}
@@ -32,69 +38,64 @@ func main() {
 	appFiber.Use(logger.New())
 	appFiber.Use(recover.New())
 
-	// --- 4. ROUTING (BERDASARKAN MASTER PLAN DATA MESH - 13 ENDPOINTS) ---
-	api := appFiber.Group("/api/v1/domains/dukcapil")
+	// --- 4. ROUTING (13 ENDPOINTS DATA MESH - IDENTIK PENDIDIKAN) ---
+	api := appFiber.Group("/api/v1/domains/penduduk")
 
 	// ============================================================
 	// A. DATA INGESTION & MONITORING (4 Endpoints)
 	// ============================================================
 	ingestion := api.Group("/submissions")
 	{
-		// 1. Ingestion Utama (Mendukung Multi-format & SCD Type 2)
+		// 1. Ingestion Utama (Mendukung Multi-format CSV/JSON/Parquet & SCD Type 2)
 		ingestion.Post("/", pendudukHandler.IngestData)
 
-		// 2. Cek Validasi Format (Metadata & NIK Integrity)
-		ingestion.Get("/:id/validation", func(c *fiber.Ctx) error {
+		// 2. Cek Validasi Format & Status Terakhir
+		ingestion.Get("/:nik/validation", func(c *fiber.Ctx) error {
+			var result models.Penduduk
+			db.Where("nomor_induk_kependudukan = ?", c.Params("nik")).Order("version desc").First(&result)
 			return c.JSON(fiber.Map{
-				"submission_id": c.Params("id"),
-				"status":        "PASSED",
-				"schema":        "DTSEN-2026-PENDUDUK",
+				"nik":    c.Params("nik"),
+				"status": result.AuditStatus, 
+				"schema": "DTSEN-PENDDK-ACTIVE",
 			})
 		})
 
-		// 3. Cek Laporan Kualitas & Skoring (Trust Score & Freshness)
-		ingestion.Get("/:id/scoring", func(c *fiber.Ctx) error {
+		// 3. Cek Laporan Kualitas & Skoring (Trust Score Real-time)
+		ingestion.Get("/:nik/scoring", func(c *fiber.Ctx) error {
+			var result models.Penduduk
+			if err := db.Where("nomor_induk_kependudukan = ?", c.Params("nik")).Order("version desc").First(&result).Error; err != nil {
+				return c.Status(404).JSON(fiber.Map{"error": "Data tidak ditemukan"})
+			}
 			return c.JSON(fiber.Map{
-				"submission_id": c.Params("id"),
-				"trust_score":   1.0,
-				"quality_label": "High Integrity - Verified by KEMENDAGRI",
+				"nik":           result.NIK,
+				"trust_score":   result.TrustScore,
+				"is_walidata":   result.IsWaliData,
+				"audit_status":  result.AuditStatus,
+				"quality_label": "Kalkulasi: 60(Sistem) + 20(Sumber) + 20(Audit)",
 			})
 		})
 
-		// 4. Cek Status Progres (Sinkronisasi ke Master Table)
-		ingestion.Get("/:id/progress", func(c *fiber.Ctx) error {
-			return c.JSON(fiber.Map{
-				"submission_id": c.Params("id"),
-				"status":        "COMPLETED",
-				"progress":      "100%",
-			})
+		// 4. Cek Status Progres
+		ingestion.Get("/:nik/progress", func(c *fiber.Ctx) error {
+			var count int64
+			db.Model(&models.Penduduk{}).Where("nomor_induk_kependudukan = ?", c.Params("nik")).Count(&count)
+			status := "NOT_FOUND"
+			if count > 0 { status = "COMPLETED_IN_MESH" }
+			return c.JSON(fiber.Map{"nik": c.Params("nik"), "status": status, "progress": "100%"})
 		})
 	}
 
 	// ============================================================
-	// B. METADATA & SCHEMA MANAGEMENT (3 Endpoints)
+	// B. METADATA & SCHEMA MANAGEMENT (3 Endpoints - DINAMIS)
 	// ============================================================
 	schemas := api.Group("/schemas")
 	{
-		// 5. Daftarkan standar struktur data baru (DTSEN Penduduk)
-		schemas.Post("/", func(c *fiber.Ctx) error {
-			return c.Status(201).JSON(fiber.Map{"message": "Schema DTSEN Penduduk baru berhasil didaftarkan"})
-		})
+		// 5 & 7. Daftar & Revisi Skema (Mendukung Validasi Dinamis NIK/Wilayah)
+		schemas.Post("/", pendudukHandler.CreateSchemaHandler)
+		schemas.Patch("/", pendudukHandler.CreateSchemaHandler)
 
-		// 6. Cek Detail Skema Aktif (Metadata Discovery)
-		schemas.Get("/latest", func(c *fiber.Ctx) error {
-			return c.JSON(fiber.Map{
-				"domain":    "kependudukan",
-				"standard":  "BPS-DTSEN-2026",
-				"version":   "V1.2",
-				"structure": []string{"nik", "no_kk", "nama", "tgl_lahir", "jenis_kelamin", "kode_desa", "alamat_ktp"},
-			})
-		})
-
-		// 7. Revisi Skema Domain (Schema Evolution)
-		schemas.Patch("/", func(c *fiber.Ctx) error {
-			return c.JSON(fiber.Map{"message": "Skema kependudukan berhasil direvisi"})
-		})
+		// 6. Cek Detail Skema Aktif (Kiblat Aturan Metadata Penduduk)
+		schemas.Get("/latest", pendudukHandler.GetLatestSchemaHandler)
 	}
 
 	// ============================================================
@@ -102,12 +103,11 @@ func main() {
 	// ============================================================
 	datasets := api.Group("/datasets")
 	{
-		// 8. GET: Data Keseluruhan (Catalog Golden Record + Dynamic Field Selection)
+		// 8. GET: Data Keseluruhan (Golden Record + Dynamic Field Selection)
 		datasets.Get("/", func(c *fiber.Ctx) error {
 			fields := c.Query("fields")
 			var results []models.Penduduk
 
-			// Logika: Ambil hanya versi terbaru tiap NIK (Golden Record) yang tidak dihapus
 			subQuery := db.Model(&models.Penduduk{}).Select("MAX(id)").Group("nomor_induk_kependudukan")
 			query := db.Where("id IN (?) AND is_deleted = ?", subQuery, false)
 
@@ -119,26 +119,45 @@ func main() {
 			return c.JSON(results)
 		})
 
-		// 9. GET: Endpoint Data Spesifik (Golden Record Detail / History NIK)
+		// 9. GET: Detail NIK (History/Golden Record + Dynamic Field Selection)
 		datasets.Get("/:nik", func(c *fiber.Ctx) error {
 			fields := c.Query("fields")
 			var result models.Penduduk
 
 			query := db.Model(&models.Penduduk{}).Where("nomor_induk_kependudukan = ?", c.Params("nik"))
-
 			if fields != "" {
 				query = query.Select(strings.Split(fields, ","))
 			}
 
 			if err := query.Order("version desc").First(&result).Error; err != nil {
-				return c.Status(404).JSON(fiber.Map{"error": "Data NIK tidak ditemukan"})
+				return c.Status(404).JSON(fiber.Map{"error": "NIK tidak ditemukan"})
 			}
 			return c.JSON(result)
 		})
 
-		// 10. PUT: Koreksi Nilai (Manual Correction memicu SCD Type 2)
-		datasets.Put("/:id", func(c *fiber.Ctx) error {
-			return c.JSON(fiber.Map{"message": "Koreksi manual penduduk berhasil, versi data ditingkatkan"})
+		// 10. PUT: Koreksi Nilai (SCD Type 2: Atribut Fisik Tetap Terjaga)
+		datasets.Put("/:nik", func(c *fiber.Ctx) error {
+			var oldData models.Penduduk
+			if err := db.Where("nomor_induk_kependudukan = ?", c.Params("nik")).Order("version desc").First(&oldData).Error; err != nil {
+				return c.Status(404).JSON(fiber.Map{"error": "Data asli tidak ditemukan"})
+			}
+
+			newData := oldData
+			if err := c.BodyParser(&newData); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
+			}
+
+			// LOGIKA RESET SCD TYPE 2
+			newData.ID = 0 
+			newData.Version = oldData.Version + 1
+			newData.AuditStatus = "PENDING"
+			newData.UpdatedAt = time.Now()
+			
+			// Skor kembali ke base (60 Sistem + 20 Sumber jika Walidata)
+			if newData.IsWaliData { newData.TrustScore = 80.0 } else { newData.TrustScore = 60.0 }
+
+			db.Create(&newData)
+			return c.JSON(fiber.Map{"message": "Versi baru penduduk dibuat, status kembali PENDING", "version": newData.Version})
 		})
 	}
 
@@ -147,33 +166,46 @@ func main() {
 	// ============================================================
 	governance := api.Group("/")
 	{
-		// 11. DELETE: Soft Delete (Dataset Lifecycle Management)
+		// 11. DELETE: Soft Delete (Sesuai Storage Penduduk)
 		governance.Delete("/datasets/:id", func(c *fiber.Ctx) error {
-			id := c.Params("id")
-			db.Model(&models.Penduduk{}).Where("id = ?", id).Update("is_deleted", true)
-			return c.JSON(fiber.Map{"message": "NIK dengan ID " + id + " berhasil dinonaktifkan"})
+			db.Model(&models.Penduduk{}).Where("id = ?", c.Params("id")).Update("is_deleted", true)
+			return c.JSON(fiber.Map{"message": "Data penduduk berhasil dinonaktifkan (Soft Delete)"})
 		})
 
-		// 12. GET: Minta Sampel Data Acak (Audit Mechanism)
+		// 12. GET: Sampel Data Acak untuk Audit Kependudukan
 		governance.Get("/audit/samples", func(c *fiber.Ctx) error {
 			var samples []models.Penduduk
-			db.Limit(5).Order("RANDOM()").Find(&samples)
+			db.Where("audit_status = ?", "PENDING").Order("RANDOM()").Limit(5).Find(&samples)
 			return c.JSON(samples)
 		})
 
-		// 13. POST: Keputusan Audit Sampel (Approved/Rejected Decision)
+		// 13. POST: Keputusan Audit (Final 20 Poin Trust Score)
 		governance.Post("/audit/decision", func(c *fiber.Ctx) error {
-			return c.JSON(fiber.Map{"message": "Keputusan audit (Data Steward) kependudukan telah disimpan"})
+			var input struct {
+				NIK     string `json:"nik"`
+				Verdict string `json:"verdict"` // BAGUS / JELEK
+			}
+			c.BodyParser(&input)
+
+			bonus := 0.0
+			if strings.ToUpper(input.Verdict) == "BAGUS" { bonus = 20.0 }
+
+			err := db.Model(&models.Penduduk{}).
+				Where("nomor_induk_kependudukan = ? AND audit_status = ?", input.NIK, "PENDING").
+				Updates(map[string]interface{}{
+					"audit_status": strings.ToUpper(input.Verdict),
+					"trust_score":  gorm.Expr("trust_score + ?", bonus),
+				}).Error
+
+			if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit kependudukan"}) }
+			return c.JSON(fiber.Map{"message": "Audit kependudukan selesai, trust score diperbarui"})
 		})
 	}
 
-	// 5. Jalankan Service pada Port 8081 (Sesuai kode lama)
+	// 5. Run Server pada Port 8081 (Sesuai Master Plan)
 	fmt.Println("---------------------------------------------------------")
-	fmt.Println(" Service Kependudukan is running")
-	fmt.Println(" Port: 8081 | DB: Port 5431")
+	fmt.Println(" BPS DATA MESH: DOMAIN KEPENDUDUKAN RUNNING")
+	fmt.Println(" Port: 8081 | Status: Identik & Dynamic")
 	fmt.Println("---------------------------------------------------------")
-
-	if err := appFiber.Listen(":8081"); err != nil {
-		panic(fmt.Sprintf("Gagal menjalankan server: %v", err))
-	}
+	appFiber.Listen(":8081")
 }

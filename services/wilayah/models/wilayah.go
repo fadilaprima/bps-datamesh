@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"time"
+	"gorm.io/datatypes"
+)
 
 // MasterWilayah mewakili entitas data wilayah di level Desa/Kelurahan
 // Struktur ini mengikuti standar variabel Metadata DTSEN (Data Terpadu Sosial Ekonomi Nasional)
@@ -16,6 +19,7 @@ type MasterWilayah struct {
 	Kecamatan     string    `gorm:"column:kecamatan" json:"kecamatan"`
 	KodeDesa      string    `gorm:"index;column:kode_kelurahan_desa" json:"kode_kelurahan_desa"` // Standar 10 digit (Index Utama)
 	Desa          string    `gorm:"column:kelurahan_desa" json:"kelurahan_desa"`
+	AdditionalInfo datatypes.JSON `gorm:"column:additional_info" json:"additional_info"`
 
 	// Metadata untuk Implementasi Data Mesh & Governance
 	Version       int       `gorm:"column:version" json:"version"`                       

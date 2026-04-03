@@ -1,105 +1,139 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"wilayah/models"
 	"wilayah/storage"
+
+	"gorm.io/datatypes"
 )
 
-// WilayahService mengelola seluruh logika bisnis domain wilayah
+// WilayahService mengelola seluruh logika bisnis domain wilayah dengan arsitektur Data Mesh
 type WilayahService struct {
 	Storage storage.WilayahStorage
 }
 
-// --- 1. SOURCE REGISTRY (Pusat Otoritas & Skoring Trust) ---
-var SourceRegistry = map[string]struct {
-	IsWali     bool
-	TrustScore float64
+// WilayahSourceRegistry sesuai Inpres No. 4 Tahun 2026 tentang Satu Data Indonesia
+var WilayahSourceRegistry = map[string]struct {
+	IsWali bool
 }{
-	"BPS":        {IsWali: true, TrustScore: 1.0},  // Wali Data Utama (MFD)
-	"KEMENDAGRI": {IsWali: false, TrustScore: 0.9}, // Administrasi Kewilayahan
+	"BPS":        {IsWali: true},  // Wali Data Statistik (MFD)
+	"KEMENDAGRI": {IsWali: true},  // Wali Data Administrasi (Kode & Data Wilayah)
+	"BIG":        {IsWali: false}, // Sumber Data Geospasial
 }
 
-// --- 2. METADATA VALIDATOR (Automated Quality Guardrail) ---
-func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah) (bool, string) {
-	// A. VALIDASI MANDATORY & PANJANG KARAKTER
-	if strings.TrimSpace(w.KodeDesa) == "" || len(w.KodeDesa) != 10 {
-		return false, "kode_kelurahan_desa wajib 10 digit (Natural Key)"
-	}
-	if strings.TrimSpace(w.Desa) == "" {
-		return false, "atribut nama kelurahan_desa tidak boleh kosong"
+// ============================================================
+// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION)
+// ============================================================
+
+// ValidateWilayahMetadata melakukan validasi isi data wilayah secara dinamis berdasarkan skema aktif
+func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definition datatypes.JSON) (bool, string) {
+	// 1. Parsing Aturan dari Skema Aktif di Database
+	var schemaMap map[string]interface{}
+	if err := json.Unmarshal(definition, &schemaMap); err != nil {
+		return false, "Gagal membaca aturan metadata wilayah"
 	}
 
-	// B. VALIDASI HIRARKI WILAYAH (Spatial Hierarchy Validation)
-	if w.KodeProv == "" || len(w.KodeProv) != 2 {
-		return false, "kode_provinsi tidak valid (harus 2 digit)"
+	rules, ok := schemaMap["definition"].(map[string]interface{})
+	if !ok {
+		return true, "" // Lolos jika definisi skema kosong
 	}
-	if w.KodeKab == "" || len(w.KodeKab) != 4 {
-		return false, "kode_kabupaten_kota tidak valid (harus 4 digit)"
+
+	// 2. LOGIKA VALIDASI HIRARKI (Prov, Kab, Kec, Desa)
+	// Mapping field struct ke key di JSON Metadata
+	checkList := []struct {
+		FieldName string
+		Value     string
+	}{
+		{"kode_prov", w.KodeProv}, // 2 digit
+		{"kode_kab", w.KodeKab},   // 4 digit
+		{"kode_kec", w.KodeKec},   // 7 digit
+		{"kode_desa", w.KodeDesa}, // 10 digit (Natural Key)
+		{"provinsi", w.Provinsi},
+		{"kabupaten", w.Kabupaten},
+		{"kecamatan", w.Kecamatan},
+		{"desa", w.Desa},
 	}
-	if w.KodeKec == "" || len(w.KodeKec) != 7 {
-		return false, "kode_kecamatan tidak valid (harus 7 digit)"
+
+	for _, item := range checkList {
+		if r, ok := rules[item.FieldName].(map[string]interface{}); ok {
+			// A. Cek Mandatory (Required)
+			if r["required"] == true && strings.TrimSpace(item.Value) == "" {
+				return false, fmt.Sprintf("Atribut wilayah '%s' wajib diisi (Mandatory)", item.FieldName)
+			}
+
+			// B. Cek Panjang Karakter (Length) - Dinamis menggantikan Hardcode 2, 4, 7, 10
+			if lengthVal, ok := r["length"].(float64); ok {
+				if item.Value != "" && len(item.Value) != int(lengthVal) {
+					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar MFD BPS", item.FieldName, int(lengthVal))
+				}
+			}
+		}
+	}
+
+	// 3. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (AdditionalInfo)
+	var extra map[string]interface{}
+	json.Unmarshal(w.AdditionalInfo, &extra)
+
+	for field, rule := range rules {
+		r, ok := rule.(map[string]interface{})
+		if !ok { continue }
+
+		if r["required"] == true {
+			// Cek apakah field ini termasuk kolom fisik tetap (fixed columns)
+			isFixed := false
+			for _, item := range checkList {
+				if item.FieldName == field { isFixed = true; break }
+			}
+
+			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Kantong Ajaib
+			if !isFixed {
+				if val, exists := extra[field]; !exists || val == "" {
+					return false, fmt.Sprintf("Atribut tambahan wilayah '%s' wajib diisi sesuai standar Metadata Mesh", field)
+				}
+			}
+		}
 	}
 
 	return true, ""
 }
 
-// --- 3. CONFLICT RESOLUTION & SCD TYPE 2 LOGIC (Anti-Regression Policy) ---
-func (s *WilayahService) ProcessIngestion(w models.MasterWilayah) (string, error) {
-	// A. Identifikasi data existing untuk kebutuhan Versioning (SCD Type 2)
-	lastVersion, err := s.Storage.GetLatestByKode(w.KodeDesa)
+// ============================================================
+// 3. CONFLICT RESOLUTION & SCD TYPE 2 (VERSIONING)
+// ============================================================
 
-	// B. Skenario: Data Belum Terdaftar (Initial Ingestion)
+// ProcessIngestion mengelola alur SCD Type 2 (Versioning) untuk Domain Wilayah
+func (s *WilayahService) ProcessIngestion(w models.MasterWilayah) (string, error) {
+	// 1. Ambil versi terakhir berdasarkan KodeDesa (Natural Key)
+	last, err := s.Storage.GetLatestByKode(w.KodeDesa)
+
+	// Skenario A: Data Wilayah Baru (First Entry)
 	if err != nil {
 		w.Version = 1
-		errCreate := s.Storage.Create(&w)
-		return "Sukses: Data awal berhasil didaftarkan (v1)", errCreate
-	}
-
-	// C. EVALUASI KONFLIK DATA (Conflict Resolution Strategy)
-	// 1. Cek Mutlak: Apakah data baru secara waktu memang lebih mutakhir
-	isNewerData := w.ReferenceDate.After(lastVersion.ReferenceDate)
-
-	// 2. Cek Pendukung: Kondisi jika tanggal referensi sama
-	isSameDate := w.ReferenceDate.Equal(lastVersion.ReferenceDate)
-	isHigherAuthority := w.IsWaliData && !lastVersion.IsWaliData
-	isHigherScore := w.TrustScore > lastVersion.TrustScore
-
-	// --- LOGIKA ANTI-REGRESI (PENGUATAN) ---
-	// Data baru diterima (v2, v3, dst) HANYA JIKA:
-	// - Memiliki tanggal referensi yang lebih baru (Temporal Priority)
-	// - ATAU Tanggal sama, namun memiliki otoritas/skor kepercayaan lebih tinggi
-	canCreateNewVersion := isNewerData || (isSameDate && (isHigherAuthority || isHigherScore))
-
-	if canCreateNewVersion {
-		// D. IMPLEMENTASI VERSIONING (SCD Type 2)
-		newVersion := *lastVersion
-		newVersion.ID = 0 // Memastikan pembuatan record baru (bukan update row lama)
-		newVersion.Version = lastVersion.Version + 1
-
-		// Map Metadata Baru ke Record Aktif
-		newVersion.SourceID = w.SourceID
-		newVersion.TrustScore = w.TrustScore
-		newVersion.ReferenceDate = w.ReferenceDate
-		newVersion.IsWaliData = w.IsWaliData
-
-		// E. RULE-BASED MERGE (Content Update)
-		newVersion.Provinsi = w.Provinsi
-		newVersion.Kabupaten = w.Kabupaten
-		newVersion.Kecamatan = w.Kecamatan
-		newVersion.Desa = w.Desa
-		newVersion.KodeProv = w.KodeProv
-		newVersion.KodeKab = w.KodeKab
-		newVersion.KodeKec = w.KodeKec
-
-		errCreate := s.Storage.Create(&newVersion)
-		if errCreate != nil {
-			return "Gagal", fmt.Errorf("database error: %v", errCreate)
+		w.AuditStatus = "PENDING"
+		if errCreate := s.Storage.Create(&w); errCreate != nil {
+			return "Error", errCreate
 		}
-		return fmt.Sprintf("Sukses: Versi %d berhasil dibuat (Anti-Regression Update)", newVersion.Version), nil
+		return "Sukses v1 (Initial Entry)", nil
 	}
 
-	// F. Penolakan Data (Data Regression Prevention)
-	return fmt.Sprintf("Abaikan: Kode %s ditolak (Data existing lebih baru/setara)", w.KodeDesa), fmt.Errorf("data outdated")
+	// Skenario B: Update Data (SCD Type 2)
+	// Logika: Diterima jika ReferenceDate lebih baru ATAU (Tanggal sama tapi dari Wali Data)
+	isNewer := w.ReferenceDate.After(last.ReferenceDate)
+	isHigherAuthority := w.ReferenceDate.Equal(last.ReferenceDate) && w.IsWaliData && !last.IsWaliData
+
+	if isNewer || isHigherAuthority {
+		w.ID = 0 // Reset ID untuk record baru di database
+		w.Version = last.Version + 1
+		w.AuditStatus = "PENDING" // Reset audit untuk setiap perubahan data
+		
+		if errCreate := s.Storage.Create(&w); errCreate != nil {
+			return "Error", errCreate
+		}
+		return fmt.Sprintf("Sukses v%d (Wilayah Updated)", w.Version), nil
+	}
+
+	return "Abaikan", fmt.Errorf("data wilayah yang dikirim lebih usang dibandingkan data di mesh")
 }

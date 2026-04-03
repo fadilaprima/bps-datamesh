@@ -1,160 +1,165 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"kependudukan/models"
 	"kependudukan/storage"
 	"strings"
+	"gorm.io/datatypes"
 )
 
 type PendudukService struct {
 	Storage storage.PendudukStorage
 }
 
-// --- 1. SOURCE REGISTRY (Pusat Otoritas Berdasarkan Inpres 4/2025) ---
+// PendudukSourceRegistry sesuai Inpres No. 4 Tahun 2026 tentang Satu Data Indonesia
 var PendudukSourceRegistry = map[string]struct {
-	IsWali     bool
-	TrustScore float64
+	IsWali bool
 }{
-	"KEMENDAGRI": {IsWali: true, TrustScore: 1.0},  // Wali Data Identitas
-	"BPS":        {IsWali: false, TrustScore: 0.9}, // Aggregator Utama
+	"KEMENDAGRI": {IsWali: true},  // Wali Data Identitas
+	"BPS":        {IsWali: true},  // Wali Data Statistik/Lapangan
+	"DESA_APPS":  {IsWali: false}, // Sumber Data Lokal/Mandiri
 }
 
-// --- 2. METADATA VALIDATOR (Versi Lengkap Pilihan Arsitek) ---
-// Melakukan pengecekan menyeluruh terhadap integritas setiap variabel kependudukan
-func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk) (bool, string) {
-	// A. VALIDASI (MANDATORY)
-	if len(p.NIK) != 16 {
-		return false, "NIK harus 16 digit"
-	}
-	if strings.TrimSpace(p.Nama) == "" {
-		return false, "Nama tidak boleh kosong"
+// ValidatePendudukMetadata melakukan validasi isi data kependudukan secara dinamis
+func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition datatypes.JSON) (bool, string) {
+	// 1. Parsing Aturan dari Skema Aktif di Database
+	var schemaMap map[string]interface{}
+	if err := json.Unmarshal(definition, &schemaMap); err != nil {
+		return false, "Gagal membaca aturan metadata kependudukan"
 	}
 
-	// B. VALIDASI HIRARKI WILAYAH DOMISILI (OPTIONAL BUT STRUCTURED)
-	if p.KodeProv != "" && len(p.KodeProv) != 2 {
-		return false, "Kode Provinsi harus 2 digit"
-	}
-	if p.KodeKab != "" && len(p.KodeKab) != 4 {
-		return false, "Kode KabKot harus 4 digit"
-	}
-	if p.KodeKec != "" && len(p.KodeKec) != 7 {
-		return false, "Kode Kecamatan harus 7 digit"
-	}
-	if p.KodeDesa != "" && len(p.KodeDesa) != 10 {
-		return false, "Kode Desa harus 10 digit"
+	rules, ok := schemaMap["definition"].(map[string]interface{})
+	if !ok {
+		return true, "" // Lolos jika definisi skema kosong
 	}
 
-	// C. VALIDASI HIRARKI WILAYAH KTP (OPTIONAL BUT STRUCTURED)
-	if p.KodeProvKTP != "" && len(p.KodeProvKTP) != 2 {
-		return false, "Kode Provinsi KTP harus 2 digit"
-	}
-	if p.KodeKabKTP != "" && len(p.KodeKabKTP) != 4 {
-		return false, "Kode KabKot KTP harus 4 digit"
-	}
-	if p.KodeKecKTP != "" && len(p.KodeKecKTP) != 7 {
-		return false, "Kode Kecamatan KTP harus 7 digit"
-	}
-	if p.KodeDesaKTP != "" && len(p.KodeDesaKTP) != 10 {
-		return false, "Kode Desa KTP harus 10 digit"
+	// 2. LOGIKA VALIDASI HIRARKI & KATEGORIKAL (NIK, NAMA, WILAYAH, JK)
+	// Mapping field struct ke key di JSON Metadata
+	checkList := []struct {
+		FieldName string
+		Value     string
+	}{
+		{"nik", p.NIK},
+		{"nama", p.Nama},
+		{"kode_prov", p.KodeProv},
+		{"kode_kab", p.KodeKab},
+		{"kode_kec", p.KodeKec},
+		{"kode_desa", p.KodeDesa},
+		{"kode_prov_ktp", p.KodeProvKTP},
+		{"kode_kab_ktp", p.KodeKabKTP},
+		{"kode_kec_ktp", p.KodeKecKTP},
+		{"kode_desa_ktp", p.KodeDesaKTP},
+		{"jenis_kelamin", p.JenisKelamin},
 	}
 
-	// D. VALIDASI KATEGORIKAL
-	if p.JenisKelamin != "" && (p.JenisKelamin != "1" && p.JenisKelamin != "2") {
-		return false, "Jenis Kelamin tidak valid (Gunakan 1 atau 2)"
+	for _, item := range checkList {
+		if r, ok := rules[item.FieldName].(map[string]interface{}); ok {
+			// A. Cek Mandatory (Required)
+			if r["required"] == true && strings.TrimSpace(item.Value) == "" {
+				return false, fmt.Sprintf("Atribut '%s' wajib diisi (Mandatory)", item.FieldName)
+			}
+
+			// B. Cek Panjang Karakter (Length) - Dinamis menggantikan Hardcode 2, 4, 7, 10
+			if lengthVal, ok := r["length"].(float64); ok {
+				if item.Value != "" && len(item.Value) != int(lengthVal) {
+					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar BPS", item.FieldName, int(lengthVal))
+				}
+			}
+
+			// C. Cek Enum (Khusus Jenis Kelamin: 1 atau 2)
+			if item.FieldName == "jenis_kelamin" && item.Value != "" {
+				if options, ok := r["options"].([]interface{}); ok {
+					isValid := false
+					for _, opt := range options {
+						m := opt.(map[string]interface{})
+						if m["code"] == item.Value {
+							isValid = true
+							break
+						}
+					}
+					if !isValid {
+						return false, "Jenis Kelamin tidak valid (Gunakan kode 1 untuk L atau 2 untuk P)"
+					}
+				}
+			}
+		}
 	}
-	if p.JmlAnggota < 0 {
-		return false, "Jumlah anggota keluarga tidak logis"
+
+	// 3. VALIDASI NUMERIK (JUMLAH ANGGOTA KELUARGA)
+	if r, ok := rules["jml_anggota"].(map[string]interface{}); ok {
+		// Validasi Dasar: Tidak boleh negatif (Logika Kode Lama)
+		if p.JmlAnggota < 0 {
+			return false, "Jumlah anggota keluarga tidak logis (Nilai negatif)"
+		}
+
+		// Validasi Dinamis: Cek batas minimal jika ada di skema
+		if minVal, ok := r["min"].(float64); ok {
+			if float64(p.JmlAnggota) < minVal {
+				return false, fmt.Sprintf("Jumlah anggota keluarga minimal adalah %d", int(minVal))
+			}
+		}
+	}
+
+	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (AdditionalInfo)
+	var extra map[string]interface{}
+	json.Unmarshal(p.AdditionalInfo, &extra)
+
+	for field, rule := range rules {
+		r, ok := rule.(map[string]interface{})
+		if !ok { continue }
+
+		if r["required"] == true {
+			// Cek apakah field ini termasuk kolom fisik tetap (fixed columns)
+			isFixed := false
+			for _, item := range checkList {
+				if item.FieldName == field { isFixed = true; break }
+			}
+			if field == "jml_anggota" || field == "alamat" { isFixed = true }
+
+			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Kantong Ajaib
+			if !isFixed {
+				if val, exists := extra[field]; !exists || val == "" {
+					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi sesuai standar Metadata Mesh", field)
+				}
+			}
+		}
 	}
 
 	return true, ""
 }
 
-// --- 3. CONFLICT RESOLUTION & RULE-BASED MERGE (SCD TYPE 2) ---
+// ProcessIngestion mengelola alur SCD Type 2 (Versioning) untuk Domain Penduduk
 func (s *PendudukService) ProcessIngestion(p models.Penduduk) (string, error) {
-	// A. Identifikasi data existing (Snapshot versi terakhir)
-	lastVersion, err := s.Storage.GetLatestByNIK(p.NIK)
+	// 1. Ambil versi terakhir berdasarkan NIK
+	last, err := s.Storage.GetLatestByNIK(p.NIK)
 
-	// B. Skenario: Data Belum Terdaftar (Initial Entry)
+	// Skenario A: Data Baru (First Entry)
 	if err != nil {
 		p.Version = 1
-		errCreate := s.Storage.Create(&p)
-		return "Sukses v1: Data awal didaftarkan", errCreate
+		p.AuditStatus = "PENDING"
+		if errCreate := s.Storage.Create(&p); errCreate != nil {
+			return "Error", errCreate
+		}
+		return "Sukses v1 (Initial Entry)", nil
 	}
 
-	// C. EVALUASI KONFLIK (HUKUM UTAMA: TEMPORAL PRIORITY)
-	// 1. Apakah data baru memiliki tanggal referensi yang lebih baru?
-	isNewerData := p.ReferenceDate.After(lastVersion.ReferenceDate)
+	// Skenario B: Update Data (SCD Type 2)
+	// Logika: Diterima jika ReferenceDate lebih baru ATAU (Tanggal sama tapi dari Wali Data)
+	isNewer := p.ReferenceDate.After(last.ReferenceDate)
+	isHigherAuthority := p.ReferenceDate.Equal(last.ReferenceDate) && p.IsWaliData && !last.IsWaliData
 
-	// 2. Tie-Breaker (Jika tanggal sama, cek Otoritas/TrustScore)
-	isSameDate := p.ReferenceDate.Equal(lastVersion.ReferenceDate)
-	isHigherAuthority := p.IsWaliData && !lastVersion.IsWaliData
-	isHigherScore := p.TrustScore > lastVersion.TrustScore
-
-	// SYARAT PEMBUATAN VERSI BARU
-	canCreateNewVersion := isNewerData || (isSameDate && (isHigherAuthority || isHigherScore))
-
-	if canCreateNewVersion {
-		// D. IMPLEMENTASI VERSIONING (Snapshot Merge)
-		newVersion := *lastVersion
-		newVersion.ID = 0
-		newVersion.Version = lastVersion.Version + 1
-
-		// Metadata Ingesti
-		newVersion.SourceID = p.SourceID
-		newVersion.TrustScore = p.TrustScore
-		newVersion.ReferenceDate = p.ReferenceDate
-		newVersion.IsWaliData = p.IsWaliData
-
-		// E. RULE-BASED MERGE (Content Update Berdasarkan Otoritas Sumber)
-		// Meskipun data lebih baru, update field dilakukan secara selektif
-		switch p.SourceID {
-		case "KEMENDAGRI":
-			// Wali Data Identitas: Berhak update data Legal & Domisili
-			newVersion.NoKK = p.NoKK
-			newVersion.NamaAnggota = p.NamaAnggota
-			newVersion.JmlAnggota = p.JmlAnggota
-			newVersion.Nama = p.Nama
-			newVersion.TglLahir = p.TglLahir
-			newVersion.JenisKelamin = p.JenisKelamin
-			newVersion.StatusKawin = p.StatusKawin
-			newVersion.StatusHubungan = p.StatusHubungan
-			newVersion.Alamat = p.Alamat
-			newVersion.KodeProv = p.KodeProv
-			newVersion.KodeKab = p.KodeKab
-			newVersion.KodeKec = p.KodeKec
-			newVersion.KodeDesa = p.KodeDesa
-			newVersion.AlamatKTP = p.AlamatKTP
-			newVersion.RTKTP = p.RTKTP
-			newVersion.RWKTP = p.RWKTP
-			newVersion.DusunKTP = p.DusunKTP
-			newVersion.KodeProvKTP = p.KodeProvKTP
-			newVersion.KodeKabKTP = p.KodeKabKTP
-			newVersion.KodeKecKTP = p.KodeKecKTP
-			newVersion.KodeDesaKTP = p.KodeDesaKTP
-
-		case "BPS":
-			// Wali Data Lapangan: Hanya update data atribut riil/domisili
-			newVersion.Alamat = p.Alamat
-			newVersion.JmlAnggota = p.JmlAnggota
-			newVersion.RTKTP = p.RTKTP
-			newVersion.RWKTP = p.RWKTP
-			newVersion.KodeDesa = p.KodeDesa
-			// Identitas Legal tetap menggunakan versi Dukcapil sebelumnya
-
-		default:
-			// Instansi Lain: Hanya update info tambahan/domisili
-			newVersion.Alamat = p.Alamat
-			newVersion.JmlAnggota = p.JmlAnggota
+	if isNewer || isHigherAuthority {
+		p.ID = 0 // Reset ID untuk record baru di database
+		p.Version = last.Version + 1
+		p.AuditStatus = "PENDING" // Reset audit untuk setiap perubahan data
+		
+		if errCreate := s.Storage.Create(&p); errCreate != nil {
+			return "Error", errCreate
 		}
-
-		errCreate := s.Storage.Create(&newVersion)
-		if errCreate != nil {
-			return "Gagal", fmt.Errorf("database error: %v", errCreate)
-		}
-		return fmt.Sprintf("Sukses v%d: Data diperbarui", newVersion.Version), nil
+		return fmt.Sprintf("Sukses v%d (Data Updated)", p.Version), nil
 	}
 
-	// F. PENOLAKAN DATA (Regresi Terdeteksi)
-	return fmt.Sprintf("Abaikan: NIK %s ditolak (Data existing lebih mutakhir)", p.NIK), fmt.Errorf("data outdated")
+	return "Abaikan", fmt.Errorf("data yang dikirim lebih usang dibandingkan data di mesh")
 }

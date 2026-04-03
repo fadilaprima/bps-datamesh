@@ -1,6 +1,7 @@
 package models
 
 import "time"
+import "gorm.io/datatypes"
 
 type Penduduk struct {
 	// 1. IDENTITAS UTAMA (SCD Type 2 Ready)
@@ -42,6 +43,7 @@ type Penduduk struct {
 	IsWaliData     bool      `gorm:"column:is_wali_data" json:"is_wali_data" parquet:"name=is_wali_data, type=BOOLEAN"`
 	TrustScore     float64   `gorm:"column:trust_score" json:"trust_score" parquet:"name=trust_score, type=DOUBLE"`
 	ReferenceDate  time.Time `gorm:"column:reference_date" json:"reference_date" parquet:"name=reference_date, type=INT64, convertedtype=TIMESTAMP_MILLIS"`
+	AdditionalInfo datatypes.JSON `gorm:"column:additional_info" json:"additional_info"`
 	
 	// Field Tambahan untuk 13 Endpoints (Lifecycle & Audit)
 	IsDeleted      bool      `gorm:"column:is_deleted;default:false" json:"is_deleted"`

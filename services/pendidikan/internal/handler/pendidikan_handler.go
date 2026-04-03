@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os" 
 	"strings"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/xitongsys/parquet-go-source/local" 
+	"github.com/xitongsys/parquet-go/reader"       
 )
 
 type PendidikanHandler struct {
@@ -31,7 +34,6 @@ func (h *PendidikanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 
 	domain := c.Params("domain", "pendidikan")
 
-	// Archive skema lama
 	h.Service.Storage.DB.Model(&models.Schema{}).
 		Where("domain = ? AND status = ?", domain, "ACTIVE").
 		Update("status", "ARCHIVED")
@@ -65,7 +67,6 @@ func (h *PendidikanHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 // ============================================================
 
 func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
-	// 1. Ambil Skema Aktif sebagai Kiblat Aturan
 	var activeSchema models.Schema
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "pendidikan", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Metadata belum siap, ingest ditolak"})
@@ -76,7 +77,6 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "File tidak ditemukan"})
 	}
 
-	// 2. Skoring 60+20 (Sistem + Walidata)
 	sourceID := strings.ToUpper(c.FormValue("source_id", "UNKNOWN"))
 	isWali := false
 	trustScore := 60.0
@@ -92,7 +92,7 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 	var dataList []models.RiwayatPendidikan
 	filename := strings.ToLower(fileHeader.Filename)
 
-	// 3. PARSING LOGIC (CSV AUTO-DETECTION FOR ADDITIONAL INFO)
+	// 3. PARSING LOGIC (CSV, PARQUET, JSON)
 	if strings.HasSuffix(filename, ".csv") {
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
@@ -102,7 +102,6 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 		for i, rec := range records {
 			if i == 0 { continue }
 			
-			// Misahkan kolom utama dan kolom tambahan (AdditionalInfo)
 			extraData := make(map[string]interface{})
 			p := models.RiwayatPendidikan{
 				SourceID: sourceID, IsWaliData: isWali, TrustScore: trustScore,
@@ -118,15 +117,32 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 				case "kelas", "kelas_tertinggi": p.Kelas = val
 				case "ijazah", "ijazah_tertinggi": p.Ijazah = val
 				default:
-					// Kalau gak ada di kolom utama, masukin kantong ajaib!
 					extraData[key] = val
 				}
 			}
 			p.AdditionalInfo, _ = json.Marshal(extraData)
 			dataList = append(dataList, p)
 		}
+	} else if strings.HasSuffix(filename, ".parquet") {
+		// --- LOGIKA PARQUET START ---
+		tmpPath := "temp_pend_" + uuid.New().String() + ".parquet"
+		fw, _ := os.Create(tmpPath)
+		io.Copy(fw, file)
+		fw.Close()
+
+		fr, _ := local.NewLocalFileReader(tmpPath)
+		pr, errP := reader.NewParquetReader(fr, new(models.RiwayatPendidikan), 4)
+		if errP == nil {
+			num := int(pr.GetNumRows())
+			res := make([]models.RiwayatPendidikan, num)
+			pr.Read(&res)
+			pr.ReadStop()
+			fr.Close()
+			os.Remove(tmpPath)
+			dataList = res
+		}
+		// --- LOGIKA PARQUET END ---
 	} else {
-		// Untuk JSON/Parquet, mapping langsung ke struct (AdditionalInfo tetap didukung jika ada di JSON)
 		body, _ := io.ReadAll(file)
 		json.Unmarshal(body, &dataList)
 	}
@@ -136,7 +152,6 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 	var errorLogs []string
 
 	for _, p := range dataList {
-		// Validasi Konten (NIK 16, dll) berdasarkan Aturan Skema di DB
 		if ok, msg := h.Service.ValidatePendidikanMetadata(p, activeSchema.Definition); !ok {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NIK %s: %s", p.NIK, msg))
