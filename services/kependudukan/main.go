@@ -183,12 +183,12 @@ func main() {
 		governance.Post("/audit/decision", func(c *fiber.Ctx) error {
 			var input struct {
 				NIK     string `json:"nik"`
-				Verdict string `json:"verdict"` // BAGUS / JELEK
+				Verdict string `json:"verdict"` // VALID / INVALID
 			}
 			c.BodyParser(&input)
 
 			bonus := 0.0
-			if strings.ToUpper(input.Verdict) == "BAGUS" { bonus = 20.0 }
+			if strings.ToUpper(input.Verdict) == "VALID" { bonus = 20.0 }
 
 			err := db.Model(&models.Penduduk{}).
 				Where("nomor_induk_kependudukan = ? AND audit_status = ?", input.NIK, "PENDING").
