@@ -122,6 +122,7 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 				case "kecamatan": w.Kecamatan = val
 				case "kode_desa": w.KodeDesa = val
 				case "desa": w.Desa = val
+				case "alamat": w.Alamat = val
 				default:
 					extraData[key] = val
 				}
