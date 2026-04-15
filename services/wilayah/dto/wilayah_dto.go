@@ -21,8 +21,6 @@ type WilayahIngestRequest struct {
 	KodeDesa  string `json:"kode_kelurahan_desa"`
 	// Desa: Nama Kelurahan/Desa
 	Desa      string `json:"kelurahan_desa"`
-	// Alamat
-	Alamat      string `json:"alamat"`
 	// --- Metadata untuk Implementasi Data Mesh & Governance ---
 	
 	// Version: Untuk pelacakan versi data (SCD Type 2)

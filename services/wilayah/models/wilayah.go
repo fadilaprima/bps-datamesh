@@ -19,7 +19,6 @@ type MasterWilayah struct {
 	Kecamatan     string    `gorm:"column:kecamatan" json:"kecamatan"`
 	KodeDesa      string    `gorm:"index;column:kode_kelurahan_desa" json:"kode_kelurahan_desa"` // Standar 10 digit (Index Utama)
 	Desa          string    `gorm:"column:kelurahan_desa" json:"kelurahan_desa"`
-	Alamat        string         `gorm:"column:alamat" json:"alamat" parquet:"name=alamat, type=UTF8"`
 	AdditionalInfo datatypes.JSON `gorm:"column:additional_info" json:"additional_info"`
 
 	// Metadata untuk Implementasi Data Mesh & Governance
