@@ -38,12 +38,11 @@ func main() {
 	appFiber.Use(logger.New())
 	appFiber.Use(recover.New())
 
-	// --- 4. ROUTING (13 ENDPOINTS DATA MESH) ---
+	// ROUTING (13 ENDPOINTS DATA MESH) ---
 	api := appFiber.Group("/api/v1/domains/ketenagakerjaan")
 
-	// ============================================================
+	
 	// A. DATA INGESTION & MONITORING (4 Endpoints)
-	// ============================================================
 	ingestion := api.Group("/submissions")
 	{
 		// 1. Ingestion Utama (Mendukung Multi-format & Skoring Biner 60+20)
@@ -60,7 +59,7 @@ func main() {
 			})
 		})
 
-		// 3. Cek Laporan Kualitas & Skoring (Trust Score Real-time)
+		// 3. Cek Laporan Kualitas & Skoring (Trust Score)
 		ingestion.Get("/:nik/scoring", func(c *fiber.Ctx) error {
 			var result models.RekamKetenagakerjaan
 			if err := db.Where("nomor_induk_kependudukan = ?", c.Params("nik")).Order("version desc").First(&result).Error; err != nil {
@@ -85,9 +84,8 @@ func main() {
 		})
 	}
 
-	// ============================================================
+	
 	// B. METADATA & SCHEMA MANAGEMENT (3 Endpoints - DINAMIS)
-	// ============================================================
 	schemas := api.Group("/schemas")
 	{
 		// 5 & 7. Daftar & Revisi Skema (Mendukung Tambah/Kurang Kolom via JSON Definition)
@@ -98,9 +96,8 @@ func main() {
 		schemas.Get("/latest", ketenagakerjaanHandler.GetLatestSchemaHandler)
 	}
 
-	// ============================================================
+	
 	// C. DATASET MAINTENANCE & DISCOVERY (3 Endpoints)
-	// ============================================================
 	datasets := api.Group("/datasets")
 	{
 		// 8. GET: Data Keseluruhan (Golden Record + Dynamic Field Selection)
@@ -161,9 +158,8 @@ func main() {
 		})
 	}
 
-	// ============================================================
+	
 	// D. GOVERNANCE & LIFECYCLE (3 Endpoints - AUDIT REAL)
-	// ============================================================
 	governance := api.Group("/")
 	{
 		// 11. DELETE: Soft Delete
@@ -205,7 +201,7 @@ func main() {
 	// 5. Run Server pada Port 8088
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN KETENAGAKERJAAN RUNNING")
-	fmt.Println(" Port: 8088 | Status: Final & Dynamic")
+	fmt.Println(" Port: 8088")
 	fmt.Println("---------------------------------------------------------")
 	appFiber.Listen(":8088")
 }

@@ -15,7 +15,8 @@ type WilayahService struct {
 	Storage storage.WilayahStorage
 }
 
-// WilayahSourceRegistry sesuai Inpres No. 4 Tahun 2026 tentang Satu Data Indonesia
+// 1. DOMAIN OWNER
+// WilayahSourceRegistry 
 var WilayahSourceRegistry = map[string]struct {
 	IsWali bool
 }{
@@ -24,10 +25,8 @@ var WilayahSourceRegistry = map[string]struct {
 	"BIG":        {IsWali: false}, // Sumber Data Geospasial
 }
 
-// ============================================================
-// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION)
-// ============================================================
 
+// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION)
 // ValidateWilayahMetadata melakukan validasi isi data wilayah secara dinamis berdasarkan skema aktif
 func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definition datatypes.JSON) (bool, string) {
 	// 1. Parsing Aturan dari Skema Aktif di Database
@@ -73,7 +72,7 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 		}
 	}
 
-	// 3. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (AdditionalInfo)
+	// 3. VALIDASI ATRIBUT TAMBAHAN (AdditionalInfo)
 	var extra map[string]interface{}
 	json.Unmarshal(w.AdditionalInfo, &extra)
 
@@ -88,7 +87,7 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 				if item.FieldName == field { isFixed = true; break }
 			}
 
-			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Kantong Ajaib
+			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Additional Info
 			if !isFixed {
 				if val, exists := extra[field]; !exists || val == "" {
 					return false, fmt.Sprintf("Atribut tambahan wilayah '%s' wajib diisi sesuai standar Metadata Mesh", field)
@@ -100,9 +99,7 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 	return true, ""
 }
 
-// ============================================================
 // 3. CONFLICT RESOLUTION & SCD TYPE 2 (VERSIONING)
-// ============================================================
 
 // ProcessIngestion mengelola alur SCD Type 2 (Versioning) untuk Domain Wilayah
 func (s *WilayahService) ProcessIngestion(w models.MasterWilayah) (string, error) {

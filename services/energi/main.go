@@ -38,12 +38,11 @@ func main() {
 	appFiber.Use(logger.New())
 	appFiber.Use(recover.New())
 
-	// --- 4. ROUTING (13 ENDPOINTS DATA MESH) ---
+	// 4. ROUTING (13 ENDPOINTS DATA MESH) 
 	api := appFiber.Group("/api/v1/domains/energi")
 
-	// ============================================================
+	
 	// A. DATA INGESTION & MONITORING (4 Endpoints)
-	// ============================================================
 	ingestion := api.Group("/submissions")
 	{
 		// 1. Ingestion Utama
@@ -85,9 +84,7 @@ func main() {
 		})
 	}
 
-	// ============================================================
 	// B. METADATA & SCHEMA MANAGEMENT (3 Endpoints)
-	// ============================================================
 	schemas := api.Group("/schemas")
 	{
 		schemas.Post("/", energiHandler.CreateSchemaHandler)
@@ -95,9 +92,8 @@ func main() {
 		schemas.Get("/latest", energiHandler.GetLatestSchemaHandler)
 	}
 
-	// ============================================================
+	
 	// C. DATASET MAINTENANCE & DISCOVERY (3 Endpoints)
-	// ============================================================
 	datasets := api.Group("/datasets")
 	{
 		// 8. GET: Data Keseluruhan (Golden Record)
@@ -156,9 +152,8 @@ func main() {
 		})
 	}
 
-	// ============================================================
+	
 	// D. GOVERNANCE & LIFECYCLE (3 Endpoints)
-	// ============================================================
 	governance := api.Group("/")
 	{
 		// 11. DELETE: Soft Delete
@@ -200,7 +195,7 @@ func main() {
 	// 5. Run Server pada Port 8087
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN ENERGI RUNNING")
-	fmt.Println(" Port: 8087 | Status: Final & Identik")
+	fmt.Println(" Port: 8087")
 	fmt.Println("---------------------------------------------------------")
 	appFiber.Listen(":8087")
 }

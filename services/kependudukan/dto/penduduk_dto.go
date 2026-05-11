@@ -3,7 +3,7 @@ package dto
 import "time"
 
 type PendudukIngestRequest struct {
-	// --- Variabel Identitas Kependudukan (Sesuai Kode Lama & Metadata) ---
+	// Variabel Identitas Kependudukan (Sesuai Kode Lama & Metadata) 
 	NIK            string    `json:"nomor_induk_kependudukan"`
 	NoKK           string    `json:"nomor_kartu_keluarga"`
 	Nama           string    `json:"nama"`
@@ -14,14 +14,14 @@ type PendudukIngestRequest struct {
 	StatusKawin    string    `json:"status_kawin"`
 	StatusHubungan string    `json:"status_hubungan_keluarga"`
 	
-	// --- Variabel Hirarki Wilayah Domisili ---
+	// Variabel Hirarki Wilayah Domisili
 	Alamat         string    `json:"alamat"`
 	KodeProv       string    `json:"kode_provinsi"`
 	KodeKab        string    `json:"kode_kabupaten_kota"`
 	KodeKec        string    `json:"kode_kecamatan"`
 	KodeDesa       string    `json:"kode_kelurahan_desa"`
 
-	// --- Variabel Hirarki Wilayah KTP ---
+	// Variabel Hirarki Wilayah KTP 
 	AlamatKTP      string    `json:"alamat_ktp"`
 	RTKTP          string    `json:"rt_ktp"`
 	RWKTP          string    `json:"rw_ktp"`
@@ -31,7 +31,7 @@ type PendudukIngestRequest struct {
 	KodeKecKTP     string    `json:"kode_kecamatan_ktp"`
 	KodeDesaKTP    string    `json:"kode_kelurahan_desa_ktp"`
 
-	// --- Metadata untuk Data Mesh & Governance (SCD Type 2) ---
+	// --- Metadata 
 	Version        int       `json:"version"`
 	SourceID       string    `json:"source_id"`
 	IsWaliData     bool      `json:"is_wali_data"`
@@ -39,7 +39,7 @@ type PendudukIngestRequest struct {
 	ReferenceDate  time.Time `json:"reference_date"`
 }
 
-// PendudukResponse: Standarisasi Output API agar seragam dengan Domain Wilayah
+// Respons
 type PendudukResponse struct {
 	Status  string      `json:"status"`
 	Message string      `json:"message"`

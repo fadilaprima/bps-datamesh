@@ -22,10 +22,8 @@ type KesehatanHandler struct {
 	Service app.KesehatanService
 }
 
-// ============================================================
-// B. METADATA & SCHEMA MANAGEMENT (IDENTIK TOTAL)
-// ============================================================
 
+// A. METADATA & SCHEMA MANAGEMENT (IDENTIK TOTAL)
 func (h *KesehatanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -63,10 +61,8 @@ func (h *KesehatanHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-// ============================================================
-// A. DATA INGESTION (HYBRID DYNAMIC - VARIABEL KESEHATAN LENGKAP)
-// ============================================================
 
+// B. DATA INGESTION (HYBRID DYNAMIC - VARIABEL KESEHATAN LENGKAP)
 func (h *KesehatanHandler) IngestData(c *fiber.Ctx) error {
 	// 1. Cek Skema Aktif
 	var activeSchema models.Schema

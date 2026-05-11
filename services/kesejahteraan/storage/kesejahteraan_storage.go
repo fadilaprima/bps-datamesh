@@ -2,9 +2,9 @@ package storage
 
 import (
 	"kesejahteraan/models"
+
 	"gorm.io/gorm"
 )
-
 
 type KesejahteraanStorage struct {
 	DB *gorm.DB

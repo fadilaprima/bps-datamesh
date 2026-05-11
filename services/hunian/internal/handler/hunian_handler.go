@@ -23,10 +23,8 @@ type HunianHandler struct {
 	Service app.HunianService
 }
 
-// ============================================================
-// B. METADATA & SCHEMA MANAGEMENT (IDENTIK)
-// ============================================================
 
+// A. METADATA & SCHEMA MANAGEMENT (IDENTIK)
 func (h *HunianHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -63,10 +61,8 @@ func (h *HunianHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-// ============================================================
-// A. DATA INGESTION (HYBRID DYNAMIC - VARIABEL HUNIAN)
-// ============================================================
 
+// B. DATA INGESTION (HYBRID DYNAMIC - VARIABEL HUNIAN)
 func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 	var activeSchema models.Schema
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "hunian", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {

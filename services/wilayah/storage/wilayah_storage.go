@@ -9,10 +9,7 @@ type WilayahStorage struct {
 	DB *gorm.DB
 }
 
-// ============================================================
 // 1. CORE OPERATIONS (SCD TYPE 2 & VERSIONING)
-// ============================================================
-
 // GetLatestByKode mengambil record terbaru berdasarkan Kode Desa/Kelurahan (Natural Key)
 func (s *WilayahStorage) GetLatestByKode(kode string) (*models.MasterWilayah, error) {
 	var w models.MasterWilayah
@@ -28,10 +25,7 @@ func (s *WilayahStorage) Create(w *models.MasterWilayah) error {
 	return s.DB.Create(w).Error
 }
 
-// ============================================================
 // 2. MONITORING & PROGRESS (SOURCE TRACKING)
-// ============================================================
-
 // GetBySubmission mengambil data berdasarkan ID pengirim (Identik dengan Pendidikan/Penduduk)
 func (s *WilayahStorage) GetBySubmission(sourceID string) ([]models.MasterWilayah, error) {
 	var results []models.MasterWilayah
@@ -40,10 +34,8 @@ func (s *WilayahStorage) GetBySubmission(sourceID string) ([]models.MasterWilaya
 	return results, err
 }
 
-// ============================================================
-// 3. MAINTENANCE (LIFECYCLE MANAGEMENT)
-// ============================================================
 
+// 3. MAINTENANCE (LIFECYCLE MANAGEMENT)
 // SoftDelete menandai data wilayah sebagai terhapus tanpa menghilangkan dari database
 func (s *WilayahStorage) SoftDelete(id string) error {
 	return s.DB.Model(&models.MasterWilayah{}).
@@ -58,9 +50,7 @@ func (s *WilayahStorage) UpdateManual(id string, data map[string]interface{}) er
 		Updates(data).Error
 }
 
-// ============================================================
 // 4. GOVERNANCE & AUDIT (QUALITY CONTROL)
-// ============================================================
 
 // UpdateAuditStatus menyimpan keputusan Approved/Rejected (Identik dengan Pendidikan/Penduduk)
 func (s *WilayahStorage) UpdateAuditStatus(id string, status string) error {

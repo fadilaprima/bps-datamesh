@@ -22,10 +22,8 @@ type PendidikanHandler struct {
 	Service app.PendidikanService
 }
 
-// ============================================================
-// B. METADATA & SCHEMA MANAGEMENT (DINAMIS)
-// ============================================================
 
+// 1. METADATA & SCHEMA MANAGEMENT (DINAMIS)
 func (h *PendidikanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -62,10 +60,8 @@ func (h *PendidikanHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-// ============================================================
-// A. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
-// ============================================================
 
+// 2. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
 func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 	var activeSchema models.Schema
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "pendidikan", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {

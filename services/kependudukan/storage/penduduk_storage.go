@@ -9,10 +9,6 @@ type PendudukStorage struct {
 	DB *gorm.DB
 }
 
-// ============================================================
-// 1. CORE OPERATIONS (SCD TYPE 2 & VERSIONING)
-// ============================================================
-
 // GetLatestByNIK mengambil record terbaru berdasarkan NIK (Identik dengan Pendidikan)
 func (s *PendudukStorage) GetLatestByNIK(nik string) (*models.Penduduk, error) {
 	var p models.Penduduk
@@ -28,9 +24,6 @@ func (s *PendudukStorage) Create(p *models.Penduduk) error {
 	return s.DB.Create(p).Error
 }
 
-// ============================================================
-// 2. MONITORING & PROGRESS (SOURCE TRACKING)
-// ============================================================
 
 // GetBySubmission mengambil data berdasarkan ID pengirim (Identik dengan Pendidikan)
 func (s *PendudukStorage) GetBySubmission(sourceID string) ([]models.Penduduk, error) {
@@ -40,9 +33,6 @@ func (s *PendudukStorage) GetBySubmission(sourceID string) ([]models.Penduduk, e
 	return results, err
 }
 
-// ============================================================
-// 3. MAINTENANCE (LIFECYCLE MANAGEMENT)
-// ============================================================
 
 // SoftDelete menandai data sebagai terhapus tanpa menghilangkan dari database
 func (s *PendudukStorage) SoftDelete(id string) error {
@@ -58,9 +48,6 @@ func (s *PendudukStorage) UpdateManual(id string, data map[string]interface{}) e
 		Updates(data).Error
 }
 
-// ============================================================
-// 4. GOVERNANCE & AUDIT (QUALITY CONTROL)
-// ============================================================
 
 // UpdateAuditStatus menyimpan keputusan Approved/Rejected (Identik dengan Pendidikan)
 func (s *PendudukStorage) UpdateAuditStatus(id string, status string) error {

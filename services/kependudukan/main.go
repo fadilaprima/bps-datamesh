@@ -38,12 +38,11 @@ func main() {
 	appFiber.Use(logger.New())
 	appFiber.Use(recover.New())
 
-	// --- 4. ROUTING (13 ENDPOINTS DATA MESH - IDENTIK PENDIDIKAN) ---
+	// 4. ROUTING (13 ENDPOINTS DATA MESH - IDENTIK PENDIDIKAN) 
 	api := appFiber.Group("/api/v1/domains/penduduk")
 
-	// ============================================================
+	
 	// A. DATA INGESTION & MONITORING (4 Endpoints)
-	// ============================================================
 	ingestion := api.Group("/submissions")
 	{
 		// 1. Ingestion Utama (Mendukung Multi-format CSV/JSON/Parquet & SCD Type 2)
@@ -85,9 +84,8 @@ func main() {
 		})
 	}
 
-	// ============================================================
+	
 	// B. METADATA & SCHEMA MANAGEMENT (3 Endpoints - DINAMIS)
-	// ============================================================
 	schemas := api.Group("/schemas")
 	{
 		// 5 & 7. Daftar & Revisi Skema (Mendukung Validasi Dinamis NIK/Wilayah)
@@ -98,9 +96,8 @@ func main() {
 		schemas.Get("/latest", pendudukHandler.GetLatestSchemaHandler)
 	}
 
-	// ============================================================
+	
 	// C. DATASET MAINTENANCE & DISCOVERY (3 Endpoints)
-	// ============================================================
 	datasets := api.Group("/datasets")
 	{
 		// 8. GET: Data Keseluruhan (Golden Record + Dynamic Field Selection)
@@ -161,9 +158,8 @@ func main() {
 		})
 	}
 
-	// ============================================================
+	
 	// D. GOVERNANCE & LIFECYCLE (3 Endpoints)
-	// ============================================================
 	governance := api.Group("/")
 	{
 		// 11. DELETE: Soft Delete (Sesuai Storage Penduduk)
@@ -205,7 +201,7 @@ func main() {
 	// 5. Run Server pada Port 8081 (Sesuai Master Plan)
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN KEPENDUDUKAN RUNNING")
-	fmt.Println(" Port: 8081 | Status: Identik & Dynamic")
+	fmt.Println(" Port: 8081")
 	fmt.Println("---------------------------------------------------------")
 	appFiber.Listen(":8081")
 }

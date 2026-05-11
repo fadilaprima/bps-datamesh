@@ -2,13 +2,22 @@ package dto
 
 import "time"
 
-type PendidikanIngestRequest struct {
-	NIK         string    `json:"nomor_induk_kependudukan"`
-	Partisipasi string    `json:"partisipasi_sekolah"`
-	Jenjang     string    `json:"jenjang_tertinggi_yang_diduduki"`
-	Kelas       string    `json:"kelas_tertinggi_yang_diduduki"`
-	Ijazah      string    `json:"ijazah_tertinggi_yang_dimiliki"`
-	
+type HunianIngestRequest struct {
+	// Kunci Logis (Rumah Tangga)
+	NoKK              string `json:"nomor_kartu_keluarga"`
+
+	// Variabel Observasi Hunian
+	StatusKepemilikan string `json:"status_kepemilikan_rumah"`
+	JenisLantai       string `json:"jenis_lantai_terluas"`
+	LuasLantai        int    `json:"luas_lantai"`
+	JenisDinding      string `json:"jenis_dinding_terluas"`
+	JenisAtap         string `json:"jenis_atap_terluas"`
+	SumberAirMinum    string `json:"sumber_air_minum_utama"`
+	SumberPenerangan  string `json:"sumber_penerangan_utama"`
+	FasilitasBAB      string `json:"fasilitas_bab"`
+	JenisKloset       string `json:"jenis_kloset"`
+	PembuanganTinja   string `json:"pembuangan_akhir_tinja"`
+
 	// Metadata untuk Implementasi Data Mesh & Governance 
 	// Version: Untuk pelacakan versi data (SCD Type 2)
 	Version       int       `json:"version"`
@@ -22,7 +31,7 @@ type PendidikanIngestRequest struct {
 	ReferenceDate time.Time `json:"reference_date"`
 }
 
-type PendidikanResponse struct {
+type HunianResponse struct {
 	Status  string      `json:"status"`
 	Message string      `json:"message"`
 	Stats   interface{} `json:"stats,omitempty"`

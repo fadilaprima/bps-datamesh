@@ -38,12 +38,11 @@ func main() {
 	appFiber.Use(logger.New())
 	appFiber.Use(recover.New())
 
-	// --- 4. ROUTING (13 ENDPOINTS DATA MESH) ---
+	// 4. ROUTING (13 ENDPOINTS DATA MESH) 
 	api := appFiber.Group("/api/v1/domains/kesehatan")
 
-	// ============================================================
+	
 	// A. DATA INGESTION & MONITORING (4 Endpoints)
-	// ============================================================
 	ingestion := api.Group("/submissions")
 	{
 		ingestion.Post("/", kesehatanHandler.IngestData)
@@ -81,9 +80,8 @@ func main() {
 		})
 	}
 
-	// ============================================================
+	
 	// B. METADATA & SCHEMA MANAGEMENT (3 Endpoints)
-	// ============================================================
 	schemas := api.Group("/schemas")
 	{
 		schemas.Post("/", kesehatanHandler.CreateSchemaHandler)
@@ -91,9 +89,8 @@ func main() {
 		schemas.Get("/latest", kesehatanHandler.GetLatestSchemaHandler)
 	}
 
-	// ============================================================
+	
 	// C. DATASET MAINTENANCE & DISCOVERY (3 Endpoints)
-	// ============================================================
 	datasets := api.Group("/datasets")
 	{
 		datasets.Get("/", func(c *fiber.Ctx) error {
@@ -149,9 +146,8 @@ func main() {
 		})
 	}
 
-	// ============================================================
+	
 	// D. GOVERNANCE & LIFECYCLE (3 Endpoints)
-	// ============================================================
 	governance := api.Group("/")
 	{
 		governance.Delete("/datasets/:id", func(c *fiber.Ctx) error {
@@ -190,7 +186,7 @@ func main() {
 	// 5. Run Server pada Port 8084
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN KESEHATAN RUNNING")
-	fmt.Println(" Port: 8084 | Status: Final & Dynamic")
+	fmt.Println(" Port: 8084")
 	fmt.Println("---------------------------------------------------------")
 	appFiber.Listen(":8084")
 }

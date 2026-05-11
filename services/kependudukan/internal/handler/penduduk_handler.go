@@ -22,10 +22,8 @@ type PendudukHandler struct {
 	Service app.PendudukService
 }
 
-// ============================================================
-// B. METADATA & SCHEMA MANAGEMENT (DINAMIS)
-// ============================================================
 
+// A. METADATA & SCHEMA MANAGEMENT (DINAMIS)
 func (h *PendudukHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -63,10 +61,8 @@ func (h *PendudukHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-// ============================================================
-// A. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
-// ============================================================
 
+// B. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
 func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 	// 1. Ambil Skema Aktif sebagai Kiblat Aturan
 	var activeSchema models.Schema
@@ -139,7 +135,7 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 				case "kode_kec_ktp": p.KodeKecKTP = val
 				case "kode_desa_ktp": p.KodeDesaKTP = val
 				default:
-					// Masuk kantong ajaib (JSONB)
+					// JSONB
 					extraData[key] = val
 				}
 			}

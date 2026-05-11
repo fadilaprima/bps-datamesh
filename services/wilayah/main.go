@@ -205,7 +205,7 @@ func main() {
 	// 5. Run Server pada Port 8083 (Sesuai Master Plan)
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN WILAYAH RUNNING")
-	fmt.Println(" Port: 8083 | Status: Identik & Dynamic")
+	fmt.Println(" Port: 8083 ")
 	fmt.Println("---------------------------------------------------------")
 	appFiber.Listen(":8083")
 }

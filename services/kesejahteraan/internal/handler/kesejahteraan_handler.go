@@ -23,10 +23,7 @@ type KesejahteraanHandler struct {
 	Service app.KesejahteraanService
 }
 
-// ============================================================
-// B. METADATA & SCHEMA MANAGEMENT (DINAMIS - KESEJAHTERAAN)
-// ============================================================
-
+// A. METADATA & SCHEMA MANAGEMENT (DINAMIS - KESEJAHTERAAN)
 func (h *KesejahteraanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -63,10 +60,8 @@ func (h *KesejahteraanHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-// ============================================================
-// A. DATA INGESTION (HYBRID DYNAMIC - VARIABEL KEMENSOS LENGKAP)
-// ============================================================
 
+// B. DATA INGESTION (HYBRID DYNAMIC - VARIABEL KEMENSOS LENGKAP)
 func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 	var activeSchema models.Schema
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "kesejahteraan", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {

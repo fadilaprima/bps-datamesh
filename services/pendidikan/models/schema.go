@@ -8,10 +8,10 @@ import (
 
 type Schema struct {
     ID         uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
-    Domain     string         `gorm:"index" json:"domain"`      // Isinya: "pendidikan"
-    Name       string         `json:"name"`                     // Isinya: "riwayat_pendidikan"
+    Domain     string         `gorm:"index" json:"domain"`      // Isi: "pendidikan"
+    Name       string         `json:"name"`                     // Isi: "riwayat_pendidikan"
     Version    int            `gorm:"default:1" json:"version"`
-    Definition datatypes.JSON `json:"definition"`               // Isinya aturan kolom dinamis
+    Definition datatypes.JSON `json:"definition"`               // Isi: aturan kolom dinamis
     Status     string         `gorm:"default:'ACTIVE'" json:"status"` 
     CreatedAt  time.Time      `json:"created_at"`
 }

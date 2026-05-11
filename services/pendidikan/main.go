@@ -162,7 +162,7 @@ func main() {
 	}
 
 	// ============================================================
-	// D. GOVERNANCE & LIFECYCLE (3 Endpoints - AUDIT REAL)
+	// D. GOVERNANCE & LIFECYCLE (3 Endpoints)
 	// ============================================================
 	governance := api.Group("/")
 	{
@@ -205,7 +205,7 @@ func main() {
 	// 5. Run Server pada Port 8082
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN PENDIDIKAN RUNNING")
-	fmt.Println(" Port: 8082 | Status: Final & Dynamic")
+	fmt.Println(" Port: 8082 ")
 	fmt.Println("---------------------------------------------------------")
 	appFiber.Listen(":8082")
 }

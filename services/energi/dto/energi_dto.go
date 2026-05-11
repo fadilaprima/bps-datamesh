@@ -2,12 +2,13 @@ package dto
 
 import "time"
 
-type PendidikanIngestRequest struct {
-	NIK         string    `json:"nomor_induk_kependudukan"`
-	Partisipasi string    `json:"partisipasi_sekolah"`
-	Jenjang     string    `json:"jenjang_tertinggi_yang_diduduki"`
-	Kelas       string    `json:"kelas_tertinggi_yang_diduduki"`
-	Ijazah      string    `json:"ijazah_tertinggi_yang_dimiliki"`
+type EnergiIngestRequest struct {
+	// Kunci Logis (Rumah Tangga)
+	NoKK              string    `json:"nomor_kartu_keluarga"`
+
+	// Variabel Inti Energi
+	IDPelangganPLN    string    `json:"id_pelanggan_pln"`
+	DayaTerpasang     string    `json:"daya_terpasang"`
 	
 	// Metadata untuk Implementasi Data Mesh & Governance 
 	// Version: Untuk pelacakan versi data (SCD Type 2)
@@ -22,7 +23,7 @@ type PendidikanIngestRequest struct {
 	ReferenceDate time.Time `json:"reference_date"`
 }
 
-type PendidikanResponse struct {
+type EnergiResponse struct {
 	Status  string      `json:"status"`
 	Message string      `json:"message"`
 	Stats   interface{} `json:"stats,omitempty"`

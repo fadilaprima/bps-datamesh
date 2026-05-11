@@ -96,7 +96,7 @@ func (s *PendidikanService) ProcessIngestion(p models.RiwayatPendidikan) (string
 		return "Sukses v1", nil
 	}
 
-	// 2. LOGIKA ANTI-REGRESI (SCD Type 2)
+	// LOGIKA (SCD Type 2)
 	// Data baru diterima jika: Tanggal lebih baru ATAU (Tanggal sama tapi pengirim adalah Walidata)
 	isNewer := p.ReferenceDate.After(last.ReferenceDate)
 	isHigherAuthority := p.ReferenceDate.Equal(last.ReferenceDate) && p.IsWaliData && !last.IsWaliData

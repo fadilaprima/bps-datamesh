@@ -22,10 +22,8 @@ type WilayahHandler struct {
 	Service app.WilayahService
 }
 
-// ============================================================
-// B. METADATA & SCHEMA MANAGEMENT (IDENTIK PENDIDIKAN/PENDUDUK)
-// ============================================================
 
+// A. METADATA & SCHEMA MANAGEMENT
 func (h *WilayahHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -63,10 +61,8 @@ func (h *WilayahHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-// ============================================================
-// A. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
-// ============================================================
 
+// B. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
 func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 	// 1. Ambil Skema Aktif sebagai Kiblat Aturan (Data Mesh Governance)
 	var activeSchema models.Schema

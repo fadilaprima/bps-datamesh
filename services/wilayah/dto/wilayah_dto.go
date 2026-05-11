@@ -3,7 +3,7 @@ package dto
 import "time"
 
 type WilayahIngestRequest struct {
-	// --- Variabel Hirarki Wilayah (Sesuai Spesifikasi Metadata PDF) ---
+	//Variabel Hirarki Wilayah
 	
 	// KodeProv: Kode Provinsi standar 2 digit
 	KodeProv  string `json:"kode_provinsi"`
@@ -21,8 +21,8 @@ type WilayahIngestRequest struct {
 	KodeDesa  string `json:"kode_kelurahan_desa"`
 	// Desa: Nama Kelurahan/Desa
 	Desa      string `json:"kelurahan_desa"`
-	// --- Metadata untuk Implementasi Data Mesh & Governance ---
 	
+	// Metadata untuk Implementasi Data Mesh & Governance 
 	// Version: Untuk pelacakan versi data (SCD Type 2)
 	Version       int       `json:"version"`
 	// SourceID: Identitas Organisasi Pengirim (Contoh: BPS, KEMENDAGRI)

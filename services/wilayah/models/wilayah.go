@@ -5,8 +5,6 @@ import (
 	"gorm.io/datatypes"
 )
 
-// MasterWilayah mewakili entitas data wilayah di level Desa/Kelurahan
-// Struktur ini mengikuti standar variabel Metadata DTSEN (Data Terpadu Sosial Ekonomi Nasional)
 type MasterWilayah struct {
 	ID            uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	
@@ -24,7 +22,7 @@ type MasterWilayah struct {
 	// Metadata untuk Implementasi Data Mesh & Governance
 	Version       int       `gorm:"column:version" json:"version"`                       
 	SourceID      string    `gorm:"column:source_id" json:"source_id"`                   // Identitas Organisasi Pengirim (BPS/Kemendagri)
-	IsWaliData    bool      `gorm:"column:is_wali_data" json:"is_wali_data"`             // Flag Otoritas (True jika dari BPS)
+	IsWaliData    bool      `gorm:"column:is_wali_data" json:"is_wali_data"`             // Flag Otoritas 
 	TrustScore    float64   `gorm:"column:trust_score" json:"trust_score"`               // Skor Kepercayaan Sumber Data
 	ReferenceDate time.Time `gorm:"column:reference_date" json:"reference_date"`         // Tanggal referensi data
 	UpdatedAt     time.Time `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"` // Timestamp pembaruan record
