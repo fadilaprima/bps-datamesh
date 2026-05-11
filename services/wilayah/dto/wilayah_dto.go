@@ -23,15 +23,15 @@ type WilayahIngestRequest struct {
 	Desa      string `json:"kelurahan_desa"`
 	
 	// Metadata untuk Implementasi Data Mesh & Governance 
-	// Version: Untuk pelacakan versi data (SCD Type 2)
+	// Version: Untuk pelacakan versi data 
 	Version       int       `json:"version"`
-	// SourceID: Identitas Organisasi Pengirim (Contoh: BPS, KEMENDAGRI)
-	SourceID      string    `json:"source_id"`
-	// IsWaliData: Flag otoritas sumber data sesuai Inpres 4/2025
-	IsWaliData    bool      `json:"is_wali_data"`
+	// SourceID: Identitas Organisasi Pengirim 
+	SourceID      int    `json:"source_id"`
+	// AuditStatus : Keputusan audit
+	AuditStatus   int    `json:"audit_status"` 
 	// TrustScore: Skor kepercayaan terhadap kualitas data yang dikirim
 	TrustScore    float64   `json:"trust_score"`
-	// ReferenceDate: Tanggal referensi data (Kapan data tersebut diambil/valid)
+	// ReferenceDate: Tanggal referensi data 
 	ReferenceDate time.Time `json:"reference_date"`
 }
 

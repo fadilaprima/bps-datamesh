@@ -80,7 +80,9 @@ func main() {
 			var count int64
 			db.Model(&models.MasterWilayah{}).Where("kode_kelurahan_desa = ?", c.Params("kode")).Count(&count)
 			status := "NOT_FOUND"
-			if count > 0 { status = "COMPLETED_IN_MESH" }
+			if count > 0 {
+				status = "COMPLETED_IN_MESH"
+			}
 			return c.JSON(fiber.Map{"kode_desa": c.Params("kode"), "status": status, "progress": "100%"})
 		})
 	}
@@ -148,13 +150,17 @@ func main() {
 			}
 
 			// LOGIKA RESET SCD TYPE 2
-			newData.ID = 0 
+			newData.ID = 0
 			newData.Version = oldData.Version + 1
 			newData.AuditStatus = "PENDING"
 			newData.UpdatedAt = time.Now()
-			
+
 			// Skor kembali ke base (60 Sistem + 20 Sumber jika Walidata)
-			if newData.IsWaliData { newData.TrustScore = 80.0 } else { newData.TrustScore = 60.0 }
+			if newData.IsWaliData {
+				newData.TrustScore = 80.0
+			} else {
+				newData.TrustScore = 60.0
+			}
 
 			db.Create(&newData)
 			return c.JSON(fiber.Map{"message": "Versi baru wilayah dibuat, status kembali PENDING", "version": newData.Version})
@@ -183,22 +189,36 @@ func main() {
 		governance.Post("/audit/decision", func(c *fiber.Ctx) error {
 			var input struct {
 				KodeDesa string `json:"kode_desa"`
-				Verdict  string `json:"verdict"` // VALID / INVALID
+				Verdict  int    `json:"verdict"`
 			}
-			c.BodyParser(&input)
 
+			if err := c.BodyParser(&input); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"})
+			}
+
+			// Penerjemah Angka ke Teks & Logika Bonus
+			verdictText := "INVALID"
 			bonus := 0.0
-			if strings.ToUpper(input.Verdict) == "VALID" { bonus = 20.0 }
 
+			if input.Verdict == 1 {
+				verdictText = "VALID"
+				bonus = 20.0
+			} else if input.Verdict != 2 {
+				return c.Status(400).JSON(fiber.Map{"error": "Verdict tidak valid. Gunakan 1 (VALID) atau 2 (INVALID)"})
+			}
+
+			// Update ke Database menggunakan teks hasil terjemahan
 			err := db.Model(&models.MasterWilayah{}).
 				Where("kode_kelurahan_desa = ? AND audit_status = ?", input.KodeDesa, "PENDING").
 				Updates(map[string]interface{}{
-					"audit_status": strings.ToUpper(input.Verdict),
+					"audit_status": verdictText,
 					"trust_score":  gorm.Expr("trust_score + ?", bonus),
 				}).Error
 
-			if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit wilayah"}) }
-			return c.JSON(fiber.Map{"message": "Audit wilayah selesai, trust score diperbarui"})
+			if err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit wilayah"})
+			}
+			return c.JSON(fiber.Map{"message": "Audit wilayah selesai, status diubah menjadi " + verdictText})
 		})
 	}
 

@@ -17,14 +17,23 @@ type WilayahService struct {
 
 // 1. DOMAIN OWNER
 // WilayahSourceRegistry 
-var WilayahSourceRegistry = map[string]struct {
+type SourceConfig struct {
+	Name   string
 	IsWali bool
-}{
-	"BPS":        {IsWali: true},  // Wali Data Statistik (MFD)
-	"KEMENDAGRI": {IsWali: true},  // Wali Data Administrasi (Kode & Data Wilayah)
-	"BIG":        {IsWali: false}, // Sumber Data Geospasial
 }
 
+// Map Angka -> Konfigurasi Source
+var SourceMap = map[int]SourceConfig{
+	1: {Name: "BPS", IsWali: true},
+	2: {Name: "KEMENDAGRI", IsWali: true},
+	3: {Name: "LAINNYA", IsWali: false},
+}
+
+// Map Angka -> Teks Verdict
+var AuditMap = map[int]string{
+	1: "VALID",
+	2: "INVALID",
+}
 
 // 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION)
 // ValidateWilayahMetadata melakukan validasi isi data wilayah secara dinamis berdasarkan skema aktif

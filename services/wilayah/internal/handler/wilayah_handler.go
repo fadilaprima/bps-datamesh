@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 type WilayahHandler struct {
 	Service app.WilayahService
 }
-
 
 // A. METADATA & SCHEMA MANAGEMENT
 func (h *WilayahHandler) CreateSchemaHandler(c *fiber.Ctx) error {
@@ -61,7 +61,6 @@ func (h *WilayahHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-
 // B. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
 func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 	// 1. Ambil Skema Aktif sebagai Kiblat Aturan (Data Mesh Governance)
@@ -72,22 +71,44 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 
 	fileHeader, err := c.FormFile("document")
 	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "File tidak ditemukan"})
+		return c.Status(400).JSON(fiber.Map{"error": "File dokumen (CSV/Parquet) tidak ditemukan"})
 	}
 
-	// 2. Skoring & Otoritas (60 Base + 20 Wali)
-	sourceID := strings.ToUpper(c.FormValue("source_id", "UNKNOWN"))
+	// 2. PENERJEMAH DROPDOWN ANGKA (SourceID & AuditStatus)
+	// Ambil angka SourceID dari Postman, default ke 3 (LAINNYA) jika kosong
+	sourceIDStr := c.FormValue("source_id", "3")
+	sourceIDInt, _ := strconv.Atoi(sourceIDStr)
+
+	sourceName := "LAINNYA"
 	isWali := false
 	trustScore := 60.0
-	if reg, exists := app.WilayahSourceRegistry[sourceID]; exists {
-		isWali = reg.IsWali
-		if isWali { trustScore += 20.0 }
+
+	// Cocokkan angka dengan kamus di Service
+	if config, exists := app.SourceMap[sourceIDInt]; exists {
+		sourceName = config.Name
+		isWali = config.IsWali
+		if isWali {
+			trustScore += 20.0
+		}
+	} else {
+		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (KEMENDAGRI), 3 (LAINNYA)"})
+	}
+
+	// Ambil angka AuditStatus dari Postman, default ke 1 (VALID) jika kosong
+	auditStatusStr := c.FormValue("audit_status", "1")
+	auditStatusInt, _ := strconv.Atoi(auditStatusStr)
+
+	auditName := "VALID"
+	if auditTxt, exists := app.AuditMap[auditStatusInt]; exists {
+		auditName = auditTxt
+	} else {
+		return c.Status(400).JSON(fiber.Map{"error": "audit_status tidak valid. Gunakan: 1 (VALID), 2 (INVALID)"})
 	}
 
 	refDate, _ := time.Parse("2006-01-02", c.FormValue("reference_date", time.Now().Format("2006-01-02")))
 	file, _ := fileHeader.Open()
 	defer file.Close()
-	
+
 	var dataList []models.MasterWilayah
 	filename := strings.ToLower(fileHeader.Filename)
 
@@ -95,29 +116,46 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 	if strings.HasSuffix(filename, ".csv") {
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
-		if len(records) < 2 { return c.Status(400).JSON(fiber.Map{"error": "CSV kosong"}) }
-		
+		if len(records) < 2 {
+			return c.Status(400).JSON(fiber.Map{"error": "CSV kosong"})
+		}
+
 		headers := records[0]
 		for i, rec := range records {
-			if i == 0 { continue }
-			
+			if i == 0 {
+				continue
+			}
+
 			extraData := make(map[string]interface{})
+
+			// Masukkan hasil terjemahan Dropdown ke dalam struct Model
 			w := models.MasterWilayah{
-				SourceID: sourceID, IsWaliData: isWali, TrustScore: trustScore,
-				ReferenceDate: refDate, AuditStatus: "PENDING",
+				SourceID:      sourceName,
+				IsWaliData:    isWali,
+				TrustScore:    trustScore,
+				ReferenceDate: refDate,
+				AuditStatus:   auditName,
 			}
 
 			for idx, val := range rec {
 				key := strings.ToLower(headers[idx])
 				switch key {
-				case "kode_prov": w.KodeProv = val
-				case "provinsi": w.Provinsi = val
-				case "kode_kab": w.KodeKab = val
-				case "kabupaten": w.Kabupaten = val
-				case "kode_kec": w.KodeKec = val
-				case "kecamatan": w.Kecamatan = val
-				case "kode_desa": w.KodeDesa = val
-				case "desa": w.Desa = val
+				case "kode_prov":
+					w.KodeProv = val
+				case "provinsi":
+					w.Provinsi = val
+				case "kode_kab":
+					w.KodeKab = val
+				case "kabupaten":
+					w.Kabupaten = val
+				case "kode_kec":
+					w.KodeKec = val
+				case "kecamatan":
+					w.Kecamatan = val
+				case "kode_desa":
+					w.KodeDesa = val
+				case "desa":
+					w.Desa = val
 				default:
 					extraData[key] = val
 				}
