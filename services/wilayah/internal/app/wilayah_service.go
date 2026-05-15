@@ -16,7 +16,7 @@ type WilayahService struct {
 }
 
 // 1. DOMAIN OWNER
-// WilayahSourceRegistry 
+// WilayahSourceRegistry
 type SourceConfig struct {
 	Name   string
 	IsWali bool
@@ -55,10 +55,10 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 		FieldName string
 		Value     string
 	}{
-		{"kode_prov", w.KodeProv}, // 2 digit
-		{"kode_kab", w.KodeKab},   // 4 digit
-		{"kode_kec", w.KodeKec},   // 7 digit
-		{"kode_desa", w.KodeDesa}, // 10 digit (Natural Key)
+		{"kode_prov", w.KodeProv},
+		{"kode_kab", w.KodeKab},
+		{"kode_kec", w.KodeKec},
+		{"kode_desa", w.KodeDesa},
 		{"provinsi", w.Provinsi},
 		{"kabupaten", w.Kabupaten},
 		{"kecamatan", w.Kecamatan},
@@ -72,7 +72,7 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 				return false, fmt.Sprintf("Atribut wilayah '%s' wajib diisi (Mandatory)", item.FieldName)
 			}
 
-			// B. Cek Panjang Karakter (Length) - Dinamis menggantikan Hardcode 2, 4, 7, 10
+			// B. Cek Panjang Karakter (Length)
 			if lengthVal, ok := r["length"].(float64); ok {
 				if item.Value != "" && len(item.Value) != int(lengthVal) {
 					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar MFD BPS", item.FieldName, int(lengthVal))
@@ -87,13 +87,18 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 
 		if r["required"] == true {
 			// Cek apakah field ini termasuk kolom fisik tetap (fixed columns)
 			isFixed := false
 			for _, item := range checkList {
-				if item.FieldName == field { isFixed = true; break }
+				if item.FieldName == field {
+					isFixed = true
+					break
+				}
 			}
 
 			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Additional Info
@@ -109,7 +114,6 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 }
 
 // 3. CONFLICT RESOLUTION & SCD TYPE 2 (VERSIONING)
-
 // ProcessIngestion mengelola alur SCD Type 2 (Versioning) untuk Domain Wilayah
 func (s *WilayahService) ProcessIngestion(w models.MasterWilayah) (string, error) {
 	// 1. Ambil versi terakhir berdasarkan KodeDesa (Natural Key)
@@ -134,7 +138,7 @@ func (s *WilayahService) ProcessIngestion(w models.MasterWilayah) (string, error
 		w.ID = 0 // Reset ID untuk record baru di database
 		w.Version = last.Version + 1
 		w.AuditStatus = "PENDING" // Reset audit untuk setiap perubahan data
-		
+
 		if errCreate := s.Storage.Create(&w); errCreate != nil {
 			return "Error", errCreate
 		}

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"wilayah/models"
+
 	"gorm.io/gorm"
 )
 
@@ -13,14 +14,14 @@ type WilayahStorage struct {
 // GetLatestByKode mengambil record terbaru berdasarkan Kode Desa/Kelurahan (Natural Key)
 func (s *WilayahStorage) GetLatestByKode(kode string) (*models.MasterWilayah, error) {
 	var w models.MasterWilayah
-	// Mengambil versi terbaru yang belum dihapus (Soft Delete aware)
+	// Mengambil versi terbaru yang belum dihapus (Soft Delete)
 	err := s.DB.Where("kode_kelurahan_desa = ? AND is_deleted = ?", kode, false).
 		Order("version desc").
 		First(&w).Error
 	return &w, err
 }
 
-// Create menyimpan record baru ke dalam tabel master_wilayah (Snapshot Baru)
+// Create menyimpan record baru ke dalam tabel master_wilayah
 func (s *WilayahStorage) Create(w *models.MasterWilayah) error {
 	return s.DB.Create(w).Error
 }
@@ -33,7 +34,6 @@ func (s *WilayahStorage) GetBySubmission(sourceID string) ([]models.MasterWilaya
 		Find(&results).Error
 	return results, err
 }
-
 
 // 3. MAINTENANCE (LIFECYCLE MANAGEMENT)
 // SoftDelete menandai data wilayah sebagai terhapus tanpa menghilangkan dari database
@@ -52,14 +52,14 @@ func (s *WilayahStorage) UpdateManual(id string, data map[string]interface{}) er
 
 // 4. GOVERNANCE & AUDIT (QUALITY CONTROL)
 
-// UpdateAuditStatus menyimpan keputusan Approved/Rejected (Identik dengan Pendidikan/Penduduk)
+// UpdateAuditStatus menyimpan keputusan Approved/Rejected
 func (s *WilayahStorage) UpdateAuditStatus(id string, status string) error {
 	return s.DB.Model(&models.MasterWilayah{}).
 		Where("id = ?", id).
 		Update("audit_status", status).Error
 }
 
-// GetSample mengambil data acak wilayah untuk keperluan audit lapangan (Identik dengan Pendidikan/Penduduk)
+// GetSample mengambil data acak wilayah untuk keperluan audit lapangan
 func (s *WilayahStorage) GetSample(limit int) ([]models.MasterWilayah, error) {
 	var samples []models.MasterWilayah
 	err := s.DB.Where("is_deleted = ?", false).

@@ -32,7 +32,7 @@ func (h *WilayahHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 
 	domain := c.Params("domain", "wilayah")
 
-	// Archive skema lama agar hanya satu yang ACTIVE
+	// Archive skema lama agar hanya satu yang aktif
 	h.Service.Storage.DB.Model(&models.Schema{}).
 		Where("domain = ? AND status = ?", domain, "ACTIVE").
 		Update("status", "ARCHIVED")
@@ -61,9 +61,9 @@ func (h *WilayahHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-// B. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
+// B. DATA INGESTION
 func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
-	// 1. Ambil Skema Aktif sebagai Kiblat Aturan (Data Mesh Governance)
+	// 1. Ambil Skema Aktif (Data Mesh Governance)
 	var activeSchema models.Schema
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "wilayah", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Metadata wilayah belum siap, ingest ditolak"})
@@ -74,9 +74,8 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "File dokumen (CSV/Parquet) tidak ditemukan"})
 	}
 
-	// 2. PENERJEMAH DROPDOWN ANGKA (SourceID & AuditStatus)
-	// Ambil angka SourceID dari Postman, default ke 3 (LAINNYA) jika kosong
-	sourceIDStr := c.FormValue("source_id", "3")
+	// 2. PENERJEMAH DROPDOWN ANGKA KHUSUS SOURCE ID
+	sourceIDStr := c.FormValue("source_id", "3") // Default: 3 (LAINNYA)
 	sourceIDInt, _ := strconv.Atoi(sourceIDStr)
 
 	sourceName := "LAINNYA"
@@ -92,17 +91,6 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 		}
 	} else {
 		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (KEMENDAGRI), 3 (LAINNYA)"})
-	}
-
-	// Ambil angka AuditStatus dari Postman, default ke 1 (VALID) jika kosong
-	auditStatusStr := c.FormValue("audit_status", "1")
-	auditStatusInt, _ := strconv.Atoi(auditStatusStr)
-
-	auditName := "VALID"
-	if auditTxt, exists := app.AuditMap[auditStatusInt]; exists {
-		auditName = auditTxt
-	} else {
-		return c.Status(400).JSON(fiber.Map{"error": "audit_status tidak valid. Gunakan: 1 (VALID), 2 (INVALID)"})
 	}
 
 	refDate, _ := time.Parse("2006-01-02", c.FormValue("reference_date", time.Now().Format("2006-01-02")))
@@ -127,14 +115,8 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 			}
 
 			extraData := make(map[string]interface{})
-
-			// Masukkan hasil terjemahan Dropdown ke dalam struct Model
 			w := models.MasterWilayah{
-				SourceID:      sourceName,
-				IsWaliData:    isWali,
-				TrustScore:    trustScore,
 				ReferenceDate: refDate,
-				AuditStatus:   auditName,
 			}
 
 			for idx, val := range rec {
@@ -164,7 +146,6 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 			dataList = append(dataList, w)
 		}
 	} else if strings.HasSuffix(filename, ".parquet") {
-		// Logika Parquet (Menggunakan file temporary)
 		tmpPath := "temp_wil_" + uuid.New().String() + ".parquet"
 		fw, _ := os.Create(tmpPath)
 		io.Copy(fw, file)
@@ -182,7 +163,6 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 			dataList = res
 		}
 	} else {
-		// Logika JSON
 		body, _ := io.ReadAll(file)
 		json.Unmarshal(body, &dataList)
 	}
@@ -191,17 +171,29 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 	success, fail := 0, 0
 	var errorLogs []string
 
-	for _, w := range dataList {
-		// Validasi Dinamis lewat Service (Kiblat ke activeSchema.Definition)
-		if ok, msg := h.Service.ValidateWilayahMetadata(w, activeSchema.Definition); !ok {
-			fail++
-			errorLogs = append(errorLogs, fmt.Sprintf("KodeDesa %s: %s", w.KodeDesa, msg))
-			continue
+	// Lakukan injeksi data otoritas & validasi ke semua baris data
+	for i := range dataList {
+		// a. INJEKSI KEAMANAN & GOVERNANCE (Sistem Memaksa Nilai Ini)
+		dataList[i].SourceID = sourceName
+		dataList[i].IsWaliData = isWali
+		dataList[i].AuditStatus = "PENDING"
+		dataList[i].SchemaVersion = fmt.Sprintf("v%d", activeSchema.Version)
+
+		if dataList[i].TrustScore == 0 {
+			dataList[i].TrustScore = trustScore
 		}
 
-		if _, err := h.Service.ProcessIngestion(w); err != nil {
+		// b. Validasi Dinamis lewat Service
+		if ok, msg := h.Service.ValidateWilayahMetadata(dataList[i], activeSchema.Definition); !ok {
 			fail++
-			errorLogs = append(errorLogs, fmt.Sprintf("KodeDesa %s: %v", w.KodeDesa, err))
+			errorLogs = append(errorLogs, fmt.Sprintf("KodeDesa %s: %s", dataList[i].KodeDesa, msg))
+			continue // Skip ke baris berikutnya jika gagal validasi
+		}
+
+		// c. Simpan ke Database
+		if _, err := h.Service.ProcessIngestion(dataList[i]); err != nil {
+			fail++
+			errorLogs = append(errorLogs, fmt.Sprintf("KodeDesa %s: %v", dataList[i].KodeDesa, err))
 		} else {
 			success++
 		}
