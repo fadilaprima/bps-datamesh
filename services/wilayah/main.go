@@ -170,17 +170,39 @@ func main() {
 			return c.JSON(fiber.Map{"message": "Data wilayah berhasil dinonaktifkan (Soft Delete)"})
 		})
 
-		// 12. GET: Sampel Data Acak untuk Audit Wilayah
+		// 12. GET: Ambil Sample Data untuk Diaudit ( Hanya Versi Tertinggi)
 		governance.Get("/audit/samples", func(c *fiber.Ctx) error {
-			var samples []models.MasterWilayah
-			db.Where("audit_status = ?", "PENDING").Order("RANDOM()").Limit(5).Find(&samples)
-			return c.JSON(samples)
+			var results []models.MasterWilayah
+
+			// Mengambil data pending yang merupakan versi paling mutakhir (tertinggi)
+			query := `
+				SELECT m.* FROM master_wilayah m
+				INNER JOIN (
+					SELECT kode_kelurahan_desa, MAX(version) as max_ver
+					FROM master_wilayah
+					GROUP BY kode_kelurahan_desa
+				) grouped_m 
+				ON m.kode_kelurahan_desa = grouped_m.kode_kelurahan_desa 
+				AND m.version = grouped_m.max_ver
+				WHERE m.audit_status = 'PENDING'
+			`
+
+			if err := db.Raw(query).Scan(&results).Error; err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"})
+			}
+
+			// Tambahan opsional
+			if len(results) == 0 {
+				return c.JSON(fiber.Map{"message": "Tidak ada data wilayah terbaru yang perlu diaudit."})
+			}
+
+			return c.JSON(results)
 		})
 
 		// 13. POST: Keputusan Audit (Final 20 Poin Trust Score)
 		governance.Post("/audit/decision", func(c *fiber.Ctx) error {
 			var input struct {
-				KodeDesa []string `json:"kode_desa"`
+				KodeDesa []string `json:"kode_kelurahan_desa"`
 				Verdict  int      `json:"verdict"` // 1 = VALID, 2 = INVALID
 			}
 
@@ -189,7 +211,7 @@ func main() {
 			}
 
 			if len(input.KodeDesa) == 0 {
-				return c.Status(400).JSON(fiber.Map{"error": "Daftar kode_desa tidak boleh kosong. Harus tahu pasti data mana yang diaudit."})
+				return c.Status(400).JSON(fiber.Map{"error": "Daftar kode_kelurahan_desa tidak boleh kosong. Harus tahu pasti data mana yang diaudit."})
 			}
 
 			// Penerjemah Angka ke Teks & Logika Bonus

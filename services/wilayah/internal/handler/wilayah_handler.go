@@ -122,21 +122,21 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 			for idx, val := range rec {
 				key := strings.ToLower(headers[idx])
 				switch key {
-				case "kode_prov":
+				case "kode_provinsi":
 					w.KodeProv = val
 				case "provinsi":
 					w.Provinsi = val
-				case "kode_kab":
+				case "kode_kabupaten":
 					w.KodeKab = val
 				case "kabupaten":
 					w.Kabupaten = val
-				case "kode_kec":
+				case "kode_kecamatan":
 					w.KodeKec = val
 				case "kecamatan":
 					w.Kecamatan = val
-				case "kode_desa":
+				case "kode_kelurahan_desa":
 					w.KodeDesa = val
-				case "desa":
+				case "kelurahan_desa":
 					w.Desa = val
 				default:
 					extraData[key] = val
