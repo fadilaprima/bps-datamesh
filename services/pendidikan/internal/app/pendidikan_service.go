@@ -14,14 +14,22 @@ type PendidikanService struct {
 	Storage storage.PendidikanStorage
 }
 
-// PendidikanSourceRegistry menentukan otoritas sumber data
-var PendidikanSourceRegistry = map[string]struct {
+// Kamus Sumber Data Khusus Pendidikan
+type SourceConfig struct {
+	Name   string
 	IsWali bool
-}{
-	"KEMENDIKBUD": {IsWali: true},
-	"KEMENAG":      {IsWali: true},
-	"BPS":          {IsWali: false},
-	"NGANJUK_KAB":  {IsWali: true},
+}
+
+var SourceMap = map[int]SourceConfig{
+	1: {Name: "BPS", IsWali: true},
+	2: {Name: "KEMENDIKBUD", IsWali: true}, // Wali Data Pendidikan
+	3: {Name: "LAINNYA", IsWali: false},
+}
+
+// Kamus Audit Decision
+var AuditMap = map[int]string{
+	1: "VALID",
+	2: "INVALID",
 }
 
 // ValidatePendidikanMetadata melakukan validasi isi data berdasarkan aturan di database (Dinamis)

@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os" 
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,16 +15,15 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"github.com/xitongsys/parquet-go-source/local" 
-	"github.com/xitongsys/parquet-go/reader"       
+	"github.com/xitongsys/parquet-go-source/local"
+	"github.com/xitongsys/parquet-go/reader"
 )
 
 type PendidikanHandler struct {
 	Service app.PendidikanService
 }
 
-
-// 1. METADATA & SCHEMA MANAGEMENT (DINAMIS)
+// 1. METADATA & SCHEMA MANAGEMENT
 func (h *PendidikanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -60,7 +60,6 @@ func (h *PendidikanHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-
 // 2. DATA INGESTION (HYBRID DYNAMIC - WITH ADDITIONAL INFO)
 func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 	var activeSchema models.Schema
@@ -73,18 +72,28 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "File tidak ditemukan"})
 	}
 
-	sourceID := strings.ToUpper(c.FormValue("source_id", "UNKNOWN"))
+	sourceIDStr := c.FormValue("source_id", "3") // Default: 3 (LAINNYA)
+	sourceIDInt, _ := strconv.Atoi(sourceIDStr)
+
+	sourceName := "LAINNYA"
 	isWali := false
 	trustScore := 60.0
-	if reg, exists := app.PendidikanSourceRegistry[sourceID]; exists {
-		isWali = reg.IsWali
-		if isWali { trustScore += 20.0 }
+
+	// Cocokkan angka dengan kamus di Service
+	if config, exists := app.SourceMap[sourceIDInt]; exists {
+		sourceName = config.Name
+		isWali = config.IsWali
+		if isWali {
+			trustScore += 20.0
+		}
+	} else {
+		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (KEMENDAGRI), 3 (LAINNYA)"})
 	}
 
 	refDate, _ := time.Parse("2006-01-02", c.FormValue("reference_date", time.Now().Format("2006-01-02")))
 	file, _ := fileHeader.Open()
 	defer file.Close()
-	
+
 	var dataList []models.RiwayatPendidikan
 	filename := strings.ToLower(fileHeader.Filename)
 
@@ -92,35 +101,43 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 	if strings.HasSuffix(filename, ".csv") {
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
-		if len(records) < 2 { return c.Status(400).JSON(fiber.Map{"error": "CSV kosong"}) }
-		
+		if len(records) < 2 {
+			return c.Status(400).JSON(fiber.Map{"error": "CSV kosong"})
+		}
+
 		headers := records[0]
 		for i, rec := range records {
-			if i == 0 { continue }
-			
+			if i == 0 {
+				continue
+			}
+
 			extraData := make(map[string]interface{})
-			p := models.RiwayatPendidikan{
-				SourceID: sourceID, IsWaliData: isWali, TrustScore: trustScore,
-				ReferenceDate: refDate, AuditStatus: "PENDING",
+			w := models.RiwayatPendidikan{
+				ReferenceDate: refDate,
 			}
 
 			for idx, val := range rec {
 				key := strings.ToLower(headers[idx])
 				switch key {
-				case "nik", "nomor_induk_kependudukan": p.NIK = val
-				case "partisipasi", "partisipasi_sekolah": p.Partisipasi = val
-				case "jenjang", "jenjang_tertinggi": p.Jenjang = val
-				case "kelas", "kelas_tertinggi": p.Kelas = val
-				case "ijazah", "ijazah_tertinggi": p.Ijazah = val
+				case "nomor_induk_kependudukan":
+					w.NIK = val
+				case "partisipasi_sekolah":
+					w.Partisipasi = val
+				case "jenjang_tertinggi":
+					w.Jenjang = val
+				case "kelas_tertinggi":
+					w.Kelas = val
+				case "ijazah_tertinggi":
+					w.Ijazah = val
 				default:
 					extraData[key] = val
 				}
 			}
-			p.AdditionalInfo, _ = json.Marshal(extraData)
-			dataList = append(dataList, p)
+			w.AdditionalInfo, _ = json.Marshal(extraData)
+			dataList = append(dataList, w)
 		}
 	} else if strings.HasSuffix(filename, ".parquet") {
-		// --- LOGIKA PARQUET START ---
+		//LOGIKA PARQUET
 		tmpPath := "temp_pend_" + uuid.New().String() + ".parquet"
 		fw, _ := os.Create(tmpPath)
 		io.Copy(fw, file)
@@ -137,7 +154,7 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 			os.Remove(tmpPath)
 			dataList = res
 		}
-		// --- LOGIKA PARQUET END ---
+
 	} else {
 		body, _ := io.ReadAll(file)
 		json.Unmarshal(body, &dataList)
@@ -147,16 +164,28 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 	success, fail := 0, 0
 	var errorLogs []string
 
-	for _, p := range dataList {
-		if ok, msg := h.Service.ValidatePendidikanMetadata(p, activeSchema.Definition); !ok {
+	for i := range dataList {
+		// Paksa masuk aturan Governance
+		dataList[i].SourceID = sourceName
+		dataList[i].IsWaliData = isWali
+		dataList[i].AuditStatus = "PENDING"
+		dataList[i].SchemaVersion = fmt.Sprintf("v%d", activeSchema.Version)
+
+		if dataList[i].TrustScore == 0 {
+			dataList[i].TrustScore = trustScore
+		}
+
+		// Validasi Metadata
+		if ok, msg := h.Service.ValidatePendidikanMetadata(dataList[i], activeSchema.Definition); !ok {
 			fail++
-			errorLogs = append(errorLogs, fmt.Sprintf("NIK %s: %s", p.NIK, msg))
+			errorLogs = append(errorLogs, fmt.Sprintf("NIK %s: %s", dataList[i].NIK, msg))
 			continue
 		}
 
-		if _, err := h.Service.ProcessIngestion(p); err != nil {
+		// Simpan ke DB
+		if _, err := h.Service.ProcessIngestion(dataList[i]); err != nil {
 			fail++
-			errorLogs = append(errorLogs, fmt.Sprintf("NIK %s: %v", p.NIK, err))
+			errorLogs = append(errorLogs, fmt.Sprintf("NIK %s: %v", dataList[i].NIK, err))
 		} else {
 			success++
 		}

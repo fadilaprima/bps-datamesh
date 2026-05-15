@@ -13,16 +13,15 @@ type RiwayatPendidikan struct {
 	Ijazah      string `gorm:"column:ijazah_tertinggi_yang_dimiliki" json:"ijazah_tertinggi_yang_dimiliki" parquet:"name=ijazah_tertinggi_yang_dimiliki, type=UTF8"`
 
 	AdditionalInfo datatypes.JSON `gorm:"column:additional_info" json:"additional_info"`
-	// Metadata Versioning & Data Mesh Lifecycle
-	Version       int       `gorm:"column:version" json:"version"`
-	SourceID      string    `gorm:"column:source_id" json:"source_id" parquet:"name=source_id, type=UTF8"`
-	IsWaliData    bool      `gorm:"column:is_wali_data" json:"is_wali_data" parquet:"name=is_wali_data, type=BOOLEAN"`
-	TrustScore    float64   `gorm:"column:trust_score" json:"trust_score" parquet:"name=trust_score, type=DOUBLE"`
-	ReferenceDate time.Time `gorm:"column:reference_date" json:"reference_date" parquet:"name=reference_date, type=INT64, convertedtype=TIMESTAMP_MILLIS"`
+	// Metadata untuk Implementasi Data Mesh & Governance
+	Version       int       `gorm:"column:version" json:"version"`                       
+	SourceID      string    `gorm:"column:source_id" json:"source_id"`                   // Identitas Organisasi Pengirim
+	IsWaliData    bool      `gorm:"column:is_wali_data" json:"is_wali_data"`             // Flag Otoritas 
+	TrustScore    float64   `gorm:"column:trust_score" json:"trust_score"`               // Skor Kepercayaan Sumber Data
+	ReferenceDate time.Time `gorm:"column:reference_date" json:"reference_date"`         // Tanggal referensi data
+	UpdatedAt     time.Time `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"` // Timestamp pembaruan record
+	IsDeleted     bool      `gorm:"default:false" json:"is_deleted"`
+	AuditStatus   string    `gorm:"default:'PENDING'" json:"audit_status"` // PENDING, VALID, INVALID
+	SchemaVersion string    `json:"schema_version"`
 	
-	// Tambahan untuk 13 Endpoints
-	IsDeleted     bool      `gorm:"column:is_deleted;default:false" json:"is_deleted"`
-	AuditStatus   string    `gorm:"column:audit_status;default:'PENDING'" json:"audit_status"`
-	UpdatedAt     time.Time `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"`
-
 }

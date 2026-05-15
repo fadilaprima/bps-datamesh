@@ -17,7 +17,6 @@ func InitDB() *gorm.DB {
 	}
 	
 	// AutoMigrate secara otomatis menyesuaikan struktur tabel di DB dengan struct RiwayatPendidikan
-	// Mencakup field lifecycle: IsDeleted, AuditStatus, Version, dll.
 	db.AutoMigrate(&models.RiwayatPendidikan{})
 	
 	return db

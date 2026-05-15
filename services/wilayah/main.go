@@ -242,7 +242,7 @@ func main() {
 		})
 	}
 
-	// 5. Run Server pada Port 8083 (Sesuai Master Plan)
+	// 5. Run Server pada Port 8083
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN WILAYAH RUNNING")
 	fmt.Println(" Port: 8083 ")

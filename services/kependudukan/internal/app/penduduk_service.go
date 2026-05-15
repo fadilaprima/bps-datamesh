@@ -6,6 +6,7 @@ import (
 	"kependudukan/models"
 	"kependudukan/storage"
 	"strings"
+
 	"gorm.io/datatypes"
 )
 
@@ -13,7 +14,7 @@ type PendudukService struct {
 	Storage storage.PendudukStorage
 }
 
-// PendudukSourceRegistry sesuai Inpres No. 4 Tahun 2026 tentang Satu Data Indonesia
+// PendudukSourceRegistry s
 var PendudukSourceRegistry = map[string]struct {
 	IsWali bool
 }{
@@ -108,15 +109,22 @@ func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 
 		if r["required"] == true {
 			// Cek apakah field ini termasuk kolom fisik tetap (fixed columns)
 			isFixed := false
 			for _, item := range checkList {
-				if item.FieldName == field { isFixed = true; break }
+				if item.FieldName == field {
+					isFixed = true
+					break
+				}
 			}
-			if field == "jml_anggota" || field == "alamat" { isFixed = true }
+			if field == "jml_anggota" || field == "alamat" {
+				isFixed = true
+			}
 
 			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Kantong Ajaib
 			if !isFixed {
@@ -154,7 +162,7 @@ func (s *PendudukService) ProcessIngestion(p models.Penduduk) (string, error) {
 		p.ID = 0 // Reset ID untuk record baru di database
 		p.Version = last.Version + 1
 		p.AuditStatus = "PENDING" // Reset audit untuk setiap perubahan data
-		
+
 		if errCreate := s.Storage.Create(&p); errCreate != nil {
 			return "Error", errCreate
 		}
