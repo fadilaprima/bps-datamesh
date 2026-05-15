@@ -24,7 +24,7 @@ func main() {
 	// AUTOMIGRATE: Sinkronisasi tabel Metadata (Schema) dan Data (MasterWilayah)
 	db.AutoMigrate(&models.Schema{}, &models.MasterWilayah{})
 
-	// 2. Inisialisasi Layer Architecture 
+	// 2. Inisialisasi Layer Architecture
 	wilayahRepo := storage.WilayahStorage{DB: db}
 	wilayahService := app.WilayahService{Storage: wilayahRepo}
 	wilayahHandler := handler.WilayahHandler{Service: wilayahService}
@@ -38,10 +38,9 @@ func main() {
 	appFiber.Use(logger.New())
 	appFiber.Use(recover.New())
 
-	// 4. ROUTING (13 ENDPOINTS DATA MESH - IDENTIK) 
+	// 4. ROUTING (13 ENDPOINTS DATA MESH - IDENTIK)
 	api := appFiber.Group("/api/v1/domains/wilayah")
 
-	
 	// A. DATA INGESTION & MONITORING (4 Endpoints)
 	ingestion := api.Group("/submissions")
 	{
@@ -59,7 +58,7 @@ func main() {
 			})
 		})
 
-		// 3. Cek Laporan Kualitas & Skoring 
+		// 3. Cek Laporan Kualitas & Skoring
 		ingestion.Get("/:kode/scoring", func(c *fiber.Ctx) error {
 			var result models.MasterWilayah
 			if err := db.Where("kode_kelurahan_desa = ?", c.Params("kode")).Order("version desc").First(&result).Error; err != nil {
@@ -86,19 +85,17 @@ func main() {
 		})
 	}
 
-	
 	// B. METADATA & SCHEMA MANAGEMENT (3 Endpoints - DINAMIS)
 	schemas := api.Group("/schemas")
 	{
-		// 5 & 7. Daftar & Revisi Skema 
+		// 5 & 7. Daftar & Revisi Skema
 		schemas.Post("/", wilayahHandler.CreateSchemaHandler)
 		schemas.Patch("/", wilayahHandler.CreateSchemaHandler)
 
-		// 6. Cek Detail Skema Aktif 
+		// 6. Cek Detail Skema Aktif
 		schemas.Get("/latest", wilayahHandler.GetLatestSchemaHandler)
 	}
 
-	
 	// C. DATASET MAINTENANCE & DISCOVERY (3 Endpoints)
 	datasets := api.Group("/datasets")
 	{
@@ -118,7 +115,7 @@ func main() {
 			return c.JSON(results)
 		})
 
-		// 9. GET: Detail Kode Desa 
+		// 9. GET: Detail Kode Desa
 		datasets.Get("/:kode", func(c *fiber.Ctx) error {
 			fields := c.Query("fields")
 			var result models.MasterWilayah
@@ -134,7 +131,7 @@ func main() {
 			return c.JSON(result)
 		})
 
-		// 10. PUT: Koreksi Nilai 
+		// 10. PUT: Koreksi Nilai
 		datasets.Put("/:kode", func(c *fiber.Ctx) error {
 			var oldData models.MasterWilayah
 			if err := db.Where("kode_kelurahan_desa = ?", c.Params("kode")).Order("version desc").First(&oldData).Error; err != nil {
@@ -164,7 +161,6 @@ func main() {
 		})
 	}
 
-	
 	// D. GOVERNANCE & LIFECYCLE (3 Endpoints)
 	governance := api.Group("/")
 	{
@@ -215,8 +211,10 @@ func main() {
 					"trust_score":  gorm.Expr("trust_score + ?", bonus),
 				}).Error
 
-			if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit wilayah massal"}) }
-			
+			if err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit wilayah massal"})
+			}
+
 			pesan := fmt.Sprintf("Audit wilayah selesai. %d desa telah diubah statusnya menjadi %s", len(input.KodeDesa), verdictText)
 			return c.JSON(fiber.Map{"message": pesan})
 		})
