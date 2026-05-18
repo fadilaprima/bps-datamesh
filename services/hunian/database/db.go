@@ -16,8 +16,6 @@ func InitDB() *gorm.DB {
 		panic("Gagal koneksi database Hunian")
 	}
 	
-	// AutoMigrate secara otomatis menyesuaikan struktur tabel di DB dengan struct RekamHunian
-	// Mencakup field lifecycle: IsDeleted, AuditStatus, Version, dll.
 	db.AutoMigrate(&models.RekamHunian{})
 	
 	return db

@@ -3,60 +3,100 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"hunian/models"
 	"hunian/storage"
 
 	"gorm.io/datatypes"
 )
 
+// HunianService mengelola seluruh logika bisnis domain hunian dengan arsitektur Data Mesh
 type HunianService struct {
 	Storage storage.HunianStorage
 }
 
-// HunianSourceRegistry menentukan otoritas sumber data (Identik)
-var HunianSourceRegistry = map[string]struct {
+// 1. DOMAIN OWNER
+// HunianSourceRegistry
+type SourceConfig struct {
+	Name   string
 	IsWali bool
-}{
-	"PUPR":        {IsWali: true},
-	"PLN":         {IsWali: true},
-	"BPS":         {IsWali: false},
-	"NGANJUK_KAB": {IsWali: true},
 }
 
-// ValidateHunianMetadata melakukan validasi isi data berdasarkan aturan di database (Identik)
-func (s *HunianService) ValidateHunianMetadata(p models.RekamHunian, definition datatypes.JSON) (bool, string) {
-	// 1. Parsing Aturan dari Skema Aktif
-	var rulesMap map[string]interface{}
-	if err := json.Unmarshal(definition, &rulesMap); err != nil {
-		return false, "Gagal membaca aturan metadata dari skema"
+// Map Angka -> Konfigurasi Source
+var SourceMap = map[int]SourceConfig{
+	1: {Name: "BPS", IsWali: true},
+	2: {Name: "PUPR", IsWali: true},        
+	3: {Name: "PKP", IsWali: true},         
+	5: {Name: "LAINNYA", IsWali: false},
+}
+
+// Map Angka -> Teks Verdict
+var AuditMap = map[int]string{
+	1: "VALID",
+	2: "INVALID",
+}
+
+// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION)
+// ValidateHunianMetadata melakukan validasi isi data secara dinamis berdasarkan skema aktif
+func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition datatypes.JSON) (bool, string) {
+	// 1. Parsing Aturan dari Skema Aktif di Database
+	var schemaMap map[string]interface{}
+	if err := json.Unmarshal(definition, &schemaMap); err != nil {
+		return false, "Gagal membaca aturan metadata hunian"
 	}
 
-	rules, hasRules := rulesMap["rules"].(map[string]interface{})
-	if !hasRules {
+	rules, ok := schemaMap["definition"].(map[string]interface{})
+	if !ok {
 		return true, ""
 	}
 
-	// 2. VALIDASI NOMOR KARTU KELUARGA (Identik dengan Logika NIK)
-	if r, ok := rules["nomor_kartu_keluarga"].(map[string]interface{}); ok {
-		if lengthVal, ok := r["length"].(float64); ok {
-			if len(p.NoKK) != int(lengthVal) {
-				return false, fmt.Sprintf("Nomor KK harus %d digit (Aturan Skema Aktif)", int(lengthVal))
+	// 2. LOGIKA VALIDASI FIELD HUNIAN
+	// Mapping field struct ke key di JSON Metadata
+	checkList := []struct {
+		FieldName string
+		Value     string
+	}{
+		{"nomor_kartu_keluarga", k.NoKK},
+		{"status_kepemilikan_rumah", k.StatusKepemilikan},
+		{"jenis_lantai_terluas", k.JenisLantai},
+		{"luas_lantai", fmt.Sprint(k.LuasLantai)}, // Konversi int ke string
+		{"jenis_dinding_terluas", k.JenisDinding},
+		{"jenis_atap_terluas", k.JenisAtap},
+		{"sumber_air_minum_utama", k.SumberAirMinum},
+		{"sumber_penerangan_utama", k.SumberPenerangan},
+		{"fasilitas_bab", k.FasilitasBAB},
+		{"jenis_kloset", k.JenisKloset},
+		{"pembuangan_akhir_tinja", k.PembuanganTinja},
+	}
+
+	for _, item := range checkList {
+		if r, ok := rules[item.FieldName].(map[string]interface{}); ok {
+			// A. Cek Mandatory (Required)
+			if r["required"] == true && strings.TrimSpace(item.Value) == "" {
+				return false, fmt.Sprintf("Atribut hunian '%s' wajib diisi (Mandatory)", item.FieldName)
+			}
+
+			// B. Cek Panjang Karakter (Length) - Berguna buat Nomor KK (16 digit)
+			if lengthVal, ok := r["length"].(float64); ok {
+				if item.Value != "" && len(item.Value) != int(lengthVal) {
+					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar", item.FieldName, int(lengthVal))
+				}
+			}
+			
+			// C. Cek Batas Maksimum (Max) - Khusus untuk Luas Lantai
+			if maxVal, ok := r["max"].(float64); ok {
+				var intVal int
+				fmt.Sscanf(item.Value, "%d", &intVal)
+				if intVal > int(maxVal) {
+					return false, fmt.Sprintf("Atribut '%s' tidak boleh lebih dari %d", item.FieldName, int(maxVal))
+				}
 			}
 		}
 	}
 
-	// 3. VALIDASI LUAS LANTAI (Identik dengan Logika Jenjang/Max)
-	if r, ok := rules["luas_lantai"].(map[string]interface{}); ok {
-		if maxVal, ok := r["max"].(float64); ok {
-			if p.LuasLantai > int(maxVal) {
-				return false, fmt.Sprintf("Luas lantai hunian tidak boleh lebih dari %d", int(maxVal))
-			}
-		}
-	}
-
-	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (Identik)
+	// 3. VALIDASI ATRIBUT TAMBAHAN (AdditionalInfo)
 	var extra map[string]interface{}
-	json.Unmarshal(p.AdditionalInfo, &extra)
+	json.Unmarshal(k.AdditionalInfo, &extra)
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
@@ -65,16 +105,19 @@ func (s *HunianService) ValidateHunianMetadata(p models.RekamHunian, definition 
 		}
 
 		if r["required"] == true {
-			// Daftar seluruh variabel tetap di domain Hunian agar tidak dianggap extra data
-			isFixedColumn := (field == "nomor_kartu_keluarga" || field == "status_kepemilikan_rumah" ||
-				field == "jenis_lantai_terluas" || field == "luas_lantai" || field == "jenis_dinding_terluas" ||
-				field == "jenis_atap_terluas" || field == "sumber_air_minum_utama" ||
-				field == "sumber_penerangan_utama" || field == "fasilitas_bab" ||
-				field == "jenis_kloset" || field == "pembuangan_akhir_tinja")
+			// Cek apakah field ini termasuk kolom fisik tetap (fixed columns)
+			isFixed := false
+			for _, item := range checkList {
+				if item.FieldName == field {
+					isFixed = true
+					break
+				}
+			}
 
-			if !isFixedColumn {
+			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Additional Info
+			if !isFixed {
 				if val, exists := extra[field]; !exists || val == "" {
-					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi sesuai skema", field)
+					return false, fmt.Sprintf("Atribut tambahan hunian '%s' wajib diisi sesuai standar Metadata Mesh", field)
 				}
 			}
 		}
@@ -83,35 +126,36 @@ func (s *HunianService) ValidateHunianMetadata(p models.RekamHunian, definition 
 	return true, ""
 }
 
-// ProcessIngestion mengelola logika SCD Type 2 (Identik)
-func (s *HunianService) ProcessIngestion(p models.RekamHunian) (string, error) {
-	// 1. Cari data terakhir di Mesh untuk NoKK ini
-	last, err := s.Storage.GetLatestByNoKK(p.NoKK)
+// 3. CONFLICT RESOLUTION & SCD TYPE 2 (VERSIONING)
+// ProcessIngestion mengelola alur SCD Type 2 untuk Domain Hunian
+func (s *HunianService) ProcessIngestion(k models.RekamHunian) (string, error) {
+	// 1. Ambil versi terakhir berdasarkan NoKK (Natural Key)
+	last, err := s.Storage.GetLatestByNoKK(k.NoKK)
 
-	// Jika data belum pernah ada (v1)
+	// Skenario A: Data Hunian Baru (First Entry)
 	if err != nil {
-		p.Version = 1
-		p.AuditStatus = "PENDING"
-		if errCreate := s.Storage.Create(&p); errCreate != nil {
+		k.Version = 1
+		k.AuditStatus = "PENDING"
+		if errCreate := s.Storage.Create(&k); errCreate != nil {
 			return "Error", errCreate
 		}
-		return "Sukses v1", nil
+		return "Sukses v1 (Initial Entry)", nil
 	}
 
-	// 2. LOGIKA ANTI-REGRESI (SCD Type 2)
-	isNewer := p.ReferenceDate.After(last.ReferenceDate)
-	isHigherAuthority := p.ReferenceDate.Equal(last.ReferenceDate) && p.IsWaliData && !last.IsWaliData
+	// Skenario B: Update Data (SCD Type 2)
+	isNewer := k.ReferenceDate.After(last.ReferenceDate)
+	isHigherAuthority := k.ReferenceDate.Equal(last.ReferenceDate) && k.IsWaliData && !last.IsWaliData
 
 	if isNewer || isHigherAuthority {
-		p.ID = 0
-		p.Version = last.Version + 1
-		p.AuditStatus = "PENDING"
+		k.ID = 0 // Reset ID untuk record baru di database
+		k.Version = last.Version + 1
+		k.AuditStatus = "PENDING" // Reset audit untuk setiap perubahan data
 
-		if errCreate := s.Storage.Create(&p); errCreate != nil {
+		if errCreate := s.Storage.Create(&k); errCreate != nil {
 			return "Error", errCreate
 		}
-		return fmt.Sprintf("Sukses v%d", p.Version), nil
+		return fmt.Sprintf("Sukses v%d (Hunian Updated)", k.Version), nil
 	}
 
-	return "Abaikan", fmt.Errorf("data lebih lama dibandingkan data di database")
+	return "Abaikan", fmt.Errorf("data hunian yang dikirim lebih usang dibandingkan data di mesh")
 }

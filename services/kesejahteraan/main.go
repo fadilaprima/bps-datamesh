@@ -133,31 +133,76 @@ func main() {
 			return c.JSON(fiber.Map{"message": "Data diarsipkan"})
 		})
 
-		governance.Post("/audit/decision", func(c *fiber.Ctx) error {
-			var input struct {
-				NoKK    string `json:"no_kk"`
-				Verdict string `json:"verdict"`
-			}
-			c.BodyParser(&input)
-			bonus := 0.0
-			if strings.ToUpper(input.Verdict) == "VALID" {
-				bonus = 20.0
+		
+		governance.Get("/audit/samples", func(c *fiber.Ctx) error {
+			var results []models.RekamKesejahteraan
+
+			query := `
+				SELECT k.* FROM rekam_kesejahteraan k
+				INNER JOIN (
+					SELECT nomor_kartu_keluarga, MAX(version) as max_ver
+					FROM rekam_kesejahteraan
+					GROUP BY nomor_kartu_keluarga
+				) grouped_k 
+				ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
+				AND k.version = grouped_k.max_ver
+				WHERE k.audit_status = 'PENDING'
+			`
+
+			if err := db.Raw(query).Scan(&results).Error; err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit kesejahteraan"})
 			}
 
+			if len(results) == 0 {
+				return c.JSON(fiber.Map{"message": "Tidak ada data kesejahteraan terbaru yang perlu diaudit."})
+			}
+
+			return c.JSON(results)
+		})
+
+		
+		governance.Post("/audit/decision", func(c *fiber.Ctx) error {
+			var input struct {
+				NoKK    []string `json:"nomor_kartu_keluarga"`
+				Verdict int      `json:"verdict"` // 1 = VALID, 2 = INVALID
+			}
+
+			if err := c.BodyParser(&input); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"})
+			}
+
+			if len(input.NoKK) == 0 {
+				return c.Status(400).JSON(fiber.Map{"error": "Daftar nomor_kartu_keluarga tidak boleh kosong. Harus tahu pasti data mana yang diaudit."})
+			}
+
+			// Penerjemah Angka ke Teks & Logika Bonus
+			verdictText := "INVALID"
+			bonus := 0.0
+
+			if input.Verdict == 1 {
+				verdictText = "VALID"
+				bonus = 20.0
+			} else if input.Verdict != 2 {
+				return c.Status(400).JSON(fiber.Map{"error": "Verdict tidak valid. Gunakan 1 (VALID) atau 2 (INVALID)"})
+			}
+
+			// Update ke Database menggunakan teks hasil terjemahan secara Massal (Bulk Update)
 			err := db.Model(&models.RekamKesejahteraan{}).
-				Where("nomor_kartu_keluarga = ? AND audit_status = ?", input.NoKK, "PENDING").
+				Where("nomor_kartu_keluarga IN ? AND audit_status = ?", input.NoKK, "PENDING").
 				Updates(map[string]interface{}{
-					"audit_status": strings.ToUpper(input.Verdict),
+					"audit_status": verdictText,
 					"trust_score":  gorm.Expr("trust_score + ?", bonus),
 				}).Error
 
 			if err != nil {
-				return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit kesejahteraan massal"})
 			}
-			return c.JSON(fiber.Map{"message": "Audit NoKK selesai"})
+
+			pesan := fmt.Sprintf("Audit kesejahteraan selesai. %d KK telah diubah statusnya menjadi %s", len(input.NoKK), verdictText)
+			return c.JSON(fiber.Map{"message": pesan})
 		})
 	}
-
+	
 	// 5. Run Server pada Port 8085
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN KESEJAHTERAAN RUNNING")

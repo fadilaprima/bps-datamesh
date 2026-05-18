@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"kesehatan/database"
-	"kesehatan/internal/app"   
-	"kesehatan/internal/handler" 
-	"kesehatan/storage" 
+	"kesehatan/internal/app"
+	"kesehatan/internal/handler"
 	"kesehatan/models"
+	"kesehatan/storage"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -38,10 +38,9 @@ func main() {
 	appFiber.Use(logger.New())
 	appFiber.Use(recover.New())
 
-	// 4. ROUTING (13 ENDPOINTS DATA MESH) 
+	// 4. ROUTING (13 ENDPOINTS DATA MESH)
 	api := appFiber.Group("/api/v1/domains/kesehatan")
 
-	
 	// A. DATA INGESTION & MONITORING (4 Endpoints)
 	ingestion := api.Group("/submissions")
 	{
@@ -75,12 +74,13 @@ func main() {
 			var count int64
 			db.Model(&models.RekamKesehatan{}).Where("nomor_induk_kependudukan = ?", c.Params("nik")).Count(&count)
 			status := "NOT_FOUND"
-			if count > 0 { status = "COMPLETED_IN_MESH" }
+			if count > 0 {
+				status = "COMPLETED_IN_MESH"
+			}
 			return c.JSON(fiber.Map{"nik": c.Params("nik"), "status": status, "progress": "100%"})
 		})
 	}
 
-	
 	// B. METADATA & SCHEMA MANAGEMENT (3 Endpoints)
 	schemas := api.Group("/schemas")
 	{
@@ -89,7 +89,6 @@ func main() {
 		schemas.Get("/latest", kesehatanHandler.GetLatestSchemaHandler)
 	}
 
-	
 	// C. DATASET MAINTENANCE & DISCOVERY (3 Endpoints)
 	datasets := api.Group("/datasets")
 	{
@@ -139,14 +138,17 @@ func main() {
 			newData.AuditStatus = "PENDING"
 			newData.UpdatedAt = time.Now()
 
-			if newData.IsWaliData { newData.TrustScore = 80.0 } else { newData.TrustScore = 60.0 }
+			if newData.IsWaliData {
+				newData.TrustScore = 80.0
+			} else {
+				newData.TrustScore = 60.0
+			}
 
 			db.Create(&newData)
 			return c.JSON(fiber.Map{"message": "Versi baru dibuat, status kembali PENDING", "version": newData.Version})
 		})
 	}
 
-	
 	// D. GOVERNANCE & LIFECYCLE (3 Endpoints)
 	governance := api.Group("/")
 	{
@@ -156,30 +158,72 @@ func main() {
 		})
 
 		governance.Get("/audit/samples", func(c *fiber.Ctx) error {
-			var samples []models.RekamKesehatan
-			db.Where("audit_status = ?", "PENDING").Order("RANDOM()").Limit(5).Find(&samples)
-			return c.JSON(samples)
+			var results []models.RekamKesehatan
+
+			// Mengambil data pending yang merupakan versi paling mutakhir (tertinggi)
+
+			query := `
+				SELECT k.* FROM rekam_kesehatan k
+				INNER JOIN (
+					SELECT nomor_induk_kependudukan, MAX(version) as max_ver
+					FROM rekam_kesehatan
+					GROUP BY nomor_induk_kependudukan
+				) grouped_k 
+				ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan 
+				AND k.version = grouped_k.max_ver
+				WHERE k.audit_status = 'PENDING'
+			`
+
+			if err := db.Raw(query).Scan(&results).Error; err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit kesehatan"})
+			}
+
+			if len(results) == 0 {
+				return c.JSON(fiber.Map{"message": "Tidak ada data kesehatan terbaru yang perlu diaudit."})
+			}
+
+			return c.JSON(results)
 		})
 
 		governance.Post("/audit/decision", func(c *fiber.Ctx) error {
 			var input struct {
-				NIK     string `json:"nik"`
-				Verdict string `json:"verdict"`
+				NIK     []string `json:"nik"`
+				Verdict int      `json:"verdict"` // 1 = VALID, 2 = INVALID
 			}
-			c.BodyParser(&input)
 
+			if err := c.BodyParser(&input); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"})
+			}
+
+			if len(input.NIK) == 0 {
+				return c.Status(400).JSON(fiber.Map{"error": "Daftar NIK tidak boleh kosong. Harus tahu pasti data mana yang diaudit."})
+			}
+
+			// Penerjemah Angka ke Teks & Logika Bonus
+			verdictText := "INVALID"
 			bonus := 0.0
-			if strings.ToUpper(input.Verdict) == "VALID" { bonus = 20.0 }
 
+			if input.Verdict == 1 {
+				verdictText = "VALID"
+				bonus = 20.0
+			} else if input.Verdict != 2 {
+				return c.Status(400).JSON(fiber.Map{"error": "Verdict tidak valid. Gunakan 1 (VALID) atau 2 (INVALID)"})
+			}
+
+			// Update ke Database menggunakan teks hasil terjemahan secara Massal (Bulk Update)
 			err := db.Model(&models.RekamKesehatan{}).
-				Where("nomor_induk_kependudukan = ? AND audit_status = ?", input.NIK, "PENDING").
+				Where("nomor_induk_kependudukan IN ? AND audit_status = ?", input.NIK, "PENDING").
 				Updates(map[string]interface{}{
-					"audit_status": strings.ToUpper(input.Verdict),
+					"audit_status": verdictText,
 					"trust_score":  gorm.Expr("trust_score + ?", bonus),
 				}).Error
 
-			if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit"}) }
-			return c.JSON(fiber.Map{"message": "Audit selesai, skor diperbarui"})
+			if err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit kesehatan massal"})
+			}
+
+			pesan := fmt.Sprintf("Audit kesehatan selesai. %d NIK telah diubah statusnya menjadi %s", len(input.NIK), verdictText)
+			return c.JSON(fiber.Map{"message": pesan})
 		})
 	}
 

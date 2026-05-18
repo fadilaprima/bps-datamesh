@@ -17,20 +17,20 @@ type DomainInfo struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
 	Owner   string `json:"owner"`
-	Path    string `json:"path"`     // URL path spesifik domain (misal: "pendidikan")
-	JoinKey string `json:"join_key"` // NIK, NoKK, atau KODE untuk proses stitching
+	Path    string `json:"path"`     
+	JoinKey string `json:"join_key"` 
 }
 
 // Daftar 8 Domain BPS yang terhubung di Data Mesh
 var meshRegistry = []DomainInfo{
-	{Name: "Kependudukan", BaseURL: "http://localhost:8081", Owner: "DUKCAPIL", Path: "dukcapil", JoinKey: "NIK"},
+	{Name: "Kependudukan", BaseURL: "http://localhost:8081", Owner: "KEMENDAGRI", Path: "kemendagri", JoinKey: "NIK"},
 	{Name: "Pendidikan", BaseURL: "http://localhost:8082", Owner: "KEMENDIKBUD", Path: "pendidikan", JoinKey: "NIK"},
 	{Name: "Wilayah", BaseURL: "http://localhost:8083", Owner: "BPS", Path: "wilayah", JoinKey: "KODE"},
-	{Name: "Kesehatan", BaseURL: "http://localhost:8084", Owner: "KEMENKES", Path: "kesehatan", JoinKey: "NIK"},
+	{Name: "Kesehatan", BaseURL: "http://localhost:8084", Owner: "BPJS_KETENAGAKERJAAN", Path: "kesehatan", JoinKey: "NIK"},
 	{Name: "Kesejahteraan", BaseURL: "http://localhost:8085", Owner: "KEMENSOS", Path: "kesejahteraan", JoinKey: "NoKK"},
-	{Name: "Hunian", BaseURL: "http://localhost:8086", Owner: "PUPR", Path: "hunian", JoinKey: "NoKK"},
-	{Name: "Energi", BaseURL: "http://localhost:8087", Owner: "PLN", Path: "energi", JoinKey: "NoKK"},
-	{Name: "Ketenagakerjaan", BaseURL: "http://localhost:8088", Owner: "KEMNAKER", Path: "ketenagakerjaan", JoinKey: "NIK"},
+	{Name: "Hunian", BaseURL: "http://localhost:8086", Owner: "PKP", Path: "hunian", JoinKey: "NoKK"},
+	{Name: "Energi", BaseURL: "http://localhost:8087", Owner: "ESDM", Path: "energi", JoinKey: "NoKK"},
+	{Name: "Ketenagakerjaan", BaseURL: "http://localhost:8088", Owner: "KEMENSOS", Path: "ketenagakerjaan", JoinKey: "NIK"},
 }
 
 // 2. Mesin Stitching: Helper Fetch Data antar Domain (Error-Proof)
@@ -43,7 +43,7 @@ func fetchFromDomain(url string, target interface{}) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("domain unreachable or data not found")
+		return fmt.Errorf("Domain tidak dapat diakses/ data tidak ditemukan")
 	}
 
 	body, _ := io.ReadAll(resp.Body)

@@ -162,36 +162,76 @@ func main() {
 			return c.JSON(fiber.Map{"message": "Data energi dinonaktifkan"})
 		})
 
-		// 12. GET: Sampel Data untuk Audit
+		// 12. GET: Ambil Sample Data untuk Diaudit (Hanya Versi Tertinggi)
 		governance.Get("/audit/samples", func(c *fiber.Ctx) error {
-			var samples []models.RekamEnergi
-			db.Where("audit_status = ?", "PENDING").Order("RANDOM()").Limit(5).Find(&samples)
-			return c.JSON(samples)
+			var results []models.RekamEnergi
+
+			// Mengambil data pending yang merupakan versi paling mutakhir (tertinggi)
+			query := `
+				SELECT k.* FROM rekam_energi k
+				INNER JOIN (
+					SELECT nomor_kartu_keluarga, MAX(version) as max_ver
+					FROM rekam_energi
+					GROUP BY nomor_kartu_keluarga
+				) grouped_k 
+				ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
+				AND k.version = grouped_k.max_ver
+				WHERE k.audit_status = 'PENDING'
+			`
+
+			if err := db.Raw(query).Scan(&results).Error; err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit energi"})
+			}
+
+			if len(results) == 0 {
+				return c.JSON(fiber.Map{"message": "Tidak ada data energi terbaru yang perlu diaudit."})
+			}
+
+			return c.JSON(results)
 		})
 
-		// 13. POST: Keputusan Audit
+		// 13. POST: Keputusan Audit (Final 20 Poin Trust Score)
 		governance.Post("/audit/decision", func(c *fiber.Ctx) error {
 			var input struct {
-				NoKK    string `json:"nokk"`
-				Verdict string `json:"verdict"`
+				NoKK    []string `json:"nomor_kartu_keluarga"`
+				Verdict int      `json:"verdict"` // 1 = VALID, 2 = INVALID
 			}
-			c.BodyParser(&input)
 
+			if err := c.BodyParser(&input); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"})
+			}
+
+			if len(input.NoKK) == 0 {
+				return c.Status(400).JSON(fiber.Map{"error": "Daftar nomor_kartu_keluarga tidak boleh kosong. Harus tahu pasti data mana yang diaudit."})
+			}
+
+			// Penerjemah Angka ke Teks & Logika Bonus
+			verdictText := "INVALID"
 			bonus := 0.0
-			if strings.ToUpper(input.Verdict) == "VALID" { bonus = 20.0 }
 
+			if input.Verdict == 1 {
+				verdictText = "VALID"
+				bonus = 20.0
+			} else if input.Verdict != 2 {
+				return c.Status(400).JSON(fiber.Map{"error": "Verdict tidak valid. Gunakan 1 (VALID) atau 2 (INVALID)"})
+			}
+
+			// Update ke Database menggunakan teks hasil terjemahan secara Massal (Bulk Update)
 			err := db.Model(&models.RekamEnergi{}).
-				Where("nomor_kartu_keluarga = ? AND audit_status = ?", input.NoKK, "PENDING").
+				Where("nomor_kartu_keluarga IN ? AND audit_status = ?", input.NoKK, "PENDING").
 				Updates(map[string]interface{}{
-					"audit_status": strings.ToUpper(input.Verdict),
+					"audit_status": verdictText,
 					"trust_score":  gorm.Expr("trust_score + ?", bonus),
 				}).Error
 
-			if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit energi"}) }
-			return c.JSON(fiber.Map{"message": "Audit energi selesai"})
+			if err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal update audit energi massal"})
+			}
+
+			pesan := fmt.Sprintf("Audit energi selesai. %d KK telah diubah statusnya menjadi %s", len(input.NoKK), verdictText)
+			return c.JSON(fiber.Map{"message": pesan})
 		})
 	}
-
 	// 5. Run Server pada Port 8087
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN ENERGI RUNNING")

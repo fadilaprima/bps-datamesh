@@ -16,7 +16,6 @@ func InitDB() *gorm.DB {
 		panic("Gagal koneksi database Kesejahteraan: " + err.Error())
 	}
 	
-	// Kita masukkan models.Schema juga agar fitur Federated Governance-nya jalan
 	db.AutoMigrate(&models.RekamKesejahteraan{}, &models.Schema{})
 	
 	return db

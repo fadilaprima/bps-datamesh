@@ -46,7 +46,7 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 
 	rules, ok := schemaMap["definition"].(map[string]interface{})
 	if !ok {
-		return true, "" // Lolos jika definisi skema kosong
+		return true, "" 
 	}
 
 	// 2. LOGIKA VALIDASI HIRARKI (Prov, Kab, Kec, Desa)
@@ -55,14 +55,14 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 		FieldName string
 		Value     string
 	}{
-		{"kode_prov", w.KodeProv},
-		{"kode_kab", w.KodeKab},
-		{"kode_kec", w.KodeKec},
-		{"kode_desa", w.KodeDesa},
+		{"kode_provinsi", w.KodeProv},
+		{"kode_kabupaten_kota", w.KodeKab},
+		{"kode_kecamatan", w.KodeKec},
+		{"kode_kelurahan_desa", w.KodeDesa},
 		{"provinsi", w.Provinsi},
-		{"kabupaten", w.Kabupaten},
+		{"kabupaten_kota", w.Kabupaten},
 		{"kecamatan", w.Kecamatan},
-		{"desa", w.Desa},
+		{"kelurahan_desa", w.Desa},
 	}
 
 	for _, item := range checkList {

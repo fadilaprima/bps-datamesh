@@ -2,6 +2,7 @@ package storage
 
 import (
 	"ketenagakerjaan/models"
+
 	"gorm.io/gorm"
 )
 

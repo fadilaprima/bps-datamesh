@@ -176,15 +176,15 @@ func main() {
 			var results []models.RiwayatPendidikan
 
 			query := `
-				SELECT p.* FROM riwayat_pendidikan p
+				SELECT w.* FROM riwayat_pendidikan w
 				INNER JOIN (
 					SELECT nomor_induk_kependudukan, MAX(version) as max_ver
 					FROM riwayat_pendidikan
 					GROUP BY nomor_induk_kependudukan
-				) grouped_p 
-				ON p.nomor_induk_kependudukan = grouped_p.nomor_induk_kependudukan 
-				AND p.version = grouped_p.max_ver
-				WHERE p.audit_status = 'PENDING'
+				) grouped_w 
+				ON w.nomor_induk_kependudukan = grouped_w.nomor_induk_kependudukan 
+				AND w.version = grouped_w.max_ver
+				WHERE w.audit_status = 'PENDING'
 			`
 
 			if err := db.Raw(query).Scan(&results).Error; err != nil {

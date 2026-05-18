@@ -11,7 +11,6 @@ type KesejahteraanStorage struct {
 }
 
 // GetLatestByNoKK: Mengambil record terbaru berdasarkan NoKK (Keluarga)
-// Fungsi ini menggantikan GetLatestByNIK karena domain Kemensos berbasis KK
 func (s *KesejahteraanStorage) GetLatestByNoKK(noKK string) (*models.RekamKesejahteraan, error) {
 	var rk models.RekamKesejahteraan
 	// Query mencari berdasarkan kolom nomor_kartu_keluarga
@@ -24,14 +23,14 @@ func (s *KesejahteraanStorage) Create(rk *models.RekamKesejahteraan) error {
 	return s.DB.Create(rk).Error
 }
 
-// GetBySubmission mengambil data berdasarkan Source ID (Misal: KEMENSOS, DINSOS)
+// GetBySubmission mengambil data berdasarkan Source ID 
 func (s *KesejahteraanStorage) GetBySubmission(subID string) ([]models.RekamKesejahteraan, error) {
 	var results []models.RekamKesejahteraan
 	err := s.DB.Where("source_id = ?", subID).Find(&results).Error
 	return results, err
 }
 
-// UpdateAuditStatus menyimpan keputusan VALID/INVALID hasil audit
+// UpdateAuditStatus menyimpan keputusan audit
 func (s *KesejahteraanStorage) UpdateAuditStatus(id string, status string) error {
 	return s.DB.Model(&models.RekamKesejahteraan{}).Where("id = ?", id).Update("audit_status", status).Error
 }

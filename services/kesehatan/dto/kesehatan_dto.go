@@ -23,15 +23,15 @@ type KesehatanIngestRequest struct {
 	PenyakitKronis          string    `json:"penyakit_kronis"`
 	
 	// Metadata untuk Implementasi Data Mesh & Governance 
-	// Version: Untuk pelacakan versi data (SCD Type 2)
+	// Version: Untuk pelacakan versi data 
 	Version       int       `json:"version"`
-	// SourceID: Identitas Organisasi Pengirim (Contoh: BPS, KEMENDAGRI)
+	// SourceID: Identitas Organisasi Pengirim 
 	SourceID      string    `json:"source_id"`
-	// IsWaliData: Flag otoritas sumber data sesuai Inpres 4/2025
+	// IsWaliData: Flag otoritas sumber data 
 	IsWaliData    bool      `json:"is_wali_data"`
 	// TrustScore: Skor kepercayaan terhadap kualitas data yang dikirim
 	TrustScore    float64   `json:"trust_score"`
-	// ReferenceDate: Tanggal referensi data (Kapan data tersebut diambil/valid)
+	// ReferenceDate: Tanggal referensi data 
 	ReferenceDate time.Time `json:"reference_date"`
 }
 

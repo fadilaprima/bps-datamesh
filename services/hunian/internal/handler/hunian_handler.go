@@ -23,8 +23,7 @@ type HunianHandler struct {
 	Service app.HunianService
 }
 
-
-// A. METADATA & SCHEMA MANAGEMENT (IDENTIK)
+// A. METADATA & SCHEMA MANAGEMENT
 func (h *HunianHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -33,6 +32,7 @@ func (h *HunianHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 
 	domain := c.Params("domain", "hunian")
 
+	// Archive skema lama agar hanya satu yang aktif
 	h.Service.Storage.DB.Model(&models.Schema{}).
 		Where("domain = ? AND status = ?", domain, "ACTIVE").
 		Update("status", "ARCHIVED")
@@ -56,32 +56,41 @@ func (h *HunianHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	var schema models.Schema
 	domain := c.Params("domain", "hunian")
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", domain, "ACTIVE").Order("version desc").First(&schema).Error; err != nil {
-		return c.Status(404).JSON(fiber.Map{"error": "Skema aktif tidak ditemukan"})
+		return c.Status(404).JSON(fiber.Map{"error": "Skema hunian aktif tidak ditemukan"})
 	}
 	return c.JSON(schema)
 }
 
-
-// B. DATA INGESTION (HYBRID DYNAMIC - VARIABEL HUNIAN)
+// B. DATA INGESTION
 func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
+	// 1. Ambil Skema Aktif (Data Mesh Governance)
 	var activeSchema models.Schema
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "hunian", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Metadata belum siap, ingest ditolak"})
+		return c.Status(500).JSON(fiber.Map{"error": "Metadata hunian belum siap, ingest ditolak"})
 	}
 
 	fileHeader, err := c.FormFile("document")
 	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "File tidak ditemukan"})
+		return c.Status(400).JSON(fiber.Map{"error": "File dokumen (CSV/Parquet) tidak ditemukan"})
 	}
 
-	sourceID := strings.ToUpper(c.FormValue("source_id", "UNKNOWN"))
+	// 2. PENERJEMAH DROPDOWN ANGKA KHUSUS SOURCE ID (FIX SESUAI MAP TERBARU)
+	sourceIDStr := c.FormValue("source_id", "5") // Default: 5 (LAINNYA)
+	sourceIDInt, _ := strconv.Atoi(sourceIDStr)
+
+	sourceName := "LAINNYA"
 	isWali := false
 	trustScore := 60.0
-	if reg, exists := app.HunianSourceRegistry[sourceID]; exists {
-		isWali = reg.IsWali
+
+	// Cocokkan angka dengan kamus baru (BPS, PUPR, PKP, LAINNYA)
+	if config, exists := app.SourceMap[sourceIDInt]; exists {
+		sourceName = config.Name
+		isWali = config.IsWali
 		if isWali {
 			trustScore += 20.0
 		}
+	} else {
+		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (PUPR), 3 (PKP), 5 (LAINNYA)"})
 	}
 
 	refDate, _ := time.Parse("2006-01-02", c.FormValue("reference_date", time.Now().Format("2006-01-02")))
@@ -91,7 +100,7 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 	var dataList []models.RekamHunian
 	filename := strings.ToLower(fileHeader.Filename)
 
-	// 3. PARSING LOGIC (CSV, PARQUET, JSON)
+	// 3. PARSING LOGIC (CSV AUTO-DETECTION & PARQUET SUPPORT)
 	if strings.HasSuffix(filename, ".csv") {
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
@@ -107,35 +116,34 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 
 			extraData := make(map[string]interface{})
 			p := models.RekamHunian{
-				SourceID: sourceID, IsWaliData: isWali, TrustScore: trustScore,
-				ReferenceDate: refDate, AuditStatus: "PENDING",
+				ReferenceDate: refDate,
 			}
 
+			// Mapping variabel Hunian dengan alias pintar
 			for idx, val := range rec {
 				key := strings.ToLower(headers[idx])
 				switch key {
-				case "no_kk", "nomor_kartu_keluarga":
+				case "nomor_kartu_keluarga", "no_kk", "nkk":
 					p.NoKK = val
-				case "status_kepemilikan_rumah":
+				case "status_kepemilikan_rumah", "status_kepemilikan":
 					p.StatusKepemilikan = val
-				case "jenis_lantai_terluas":
+				case "jenis_lantai_terluas", "jenis_lantai":
 					p.JenisLantai = val
 				case "luas_lantai":
-					iv, _ := strconv.Atoi(val)
-					p.LuasLantai = iv
-				case "jenis_dinding_terluas":
+					fmt.Sscanf(val, "%d", &p.LuasLantai)
+				case "jenis_dinding_terluas", "jenis_dinding":
 					p.JenisDinding = val
-				case "jenis_atap_terluas":
+				case "jenis_atap_terluas", "jenis_atap":
 					p.JenisAtap = val
-				case "sumber_air_minum_utama":
+				case "sumber_air_minum_utama", "sumber_air_minum", "air_minum":
 					p.SumberAirMinum = val
-				case "sumber_penerangan_utama":
+				case "sumber_penerangan_utama", "sumber_penerangan", "penerangan":
 					p.SumberPenerangan = val
-				case "fasilitas_bab":
+				case "fasilitas_bab", "bab":
 					p.FasilitasBAB = val
-				case "jenis_kloset":
+				case "jenis_kloset", "kloset":
 					p.JenisKloset = val
-				case "pembuangan_akhir_tinja":
+				case "pembuangan_akhir_tinja", "pembuangan_tinja":
 					p.PembuanganTinja = val
 				default:
 					extraData[key] = val
@@ -166,27 +174,40 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 		json.Unmarshal(body, &dataList)
 	}
 
-	// 4. VALIDASI & PROSES (Identik)
+	// 4. VALIDASI & PROSES (SCD TYPE 2)
 	success, fail := 0, 0
 	var errorLogs []string
 
-	for _, p := range dataList {
-		if ok, msg := h.Service.ValidateHunianMetadata(p, activeSchema.Definition); !ok {
+	for i := range dataList {
+		// a. INJEKSI KEAMANAN & GOVERNANCE
+		dataList[i].SourceID = sourceName
+		dataList[i].IsWaliData = isWali
+		dataList[i].AuditStatus = "PENDING"
+		dataList[i].SchemaVersion = fmt.Sprintf("v%d", activeSchema.Version)
+
+		if dataList[i].TrustScore == 0 {
+			dataList[i].TrustScore = trustScore
+		}
+
+		// b. Validasi Dinamis lewat Service
+		if ok, msg := h.Service.ValidateHunianMetadata(dataList[i], activeSchema.Definition); !ok {
 			fail++
-			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %s", p.NoKK, msg))
+			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %s", dataList[i].NoKK, msg))
 			continue
 		}
 
-		if _, err := h.Service.ProcessIngestion(p); err != nil {
+		// c. Simpan ke Database
+		if _, err := h.Service.ProcessIngestion(dataList[i]); err != nil {
 			fail++
-			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %v", p.NoKK, err))
+			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %v", dataList[i].NoKK, err))
 		} else {
 			success++
 		}
 	}
 
 	return c.JSON(fiber.Map{
-		"status": "Finished",
+		"status": "Ingestion Finished",
+		"domain": "hunian",
 		"schema": activeSchema.Name + " v" + fmt.Sprint(activeSchema.Version),
 		"stats":  fiber.Map{"total": len(dataList), "success": success, "fail": fail},
 		"errors": errorLogs,

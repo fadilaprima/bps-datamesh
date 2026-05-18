@@ -31,4 +31,5 @@ type RekamHunian struct {
 	IsDeleted      bool           `gorm:"column:is_deleted;default:false" json:"is_deleted"`
 	AuditStatus    string         `gorm:"column:audit_status;default:'PENDING'" json:"audit_status"`
 	UpdatedAt      time.Time      `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"`
+	SchemaVersion  string    `json:"schema_version"`
 }

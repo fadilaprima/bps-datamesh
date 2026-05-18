@@ -9,7 +9,6 @@ import (
 )
 
 func InitDB() *gorm.DB {
-	// Port 5431 sesuai kode lama kamu
 	dsn := "host=127.0.0.1 user=postgres password=admin dbname=postgres port=5431 sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {

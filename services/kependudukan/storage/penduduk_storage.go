@@ -9,23 +9,23 @@ type PendudukStorage struct {
 	DB *gorm.DB
 }
 
-// GetLatestByNIK mengambil record terbaru berdasarkan NIK (Identik dengan Pendidikan)
+// GetLatestByNIK mengambil record terbaru berdasarkan NIK 
 func (s *PendudukStorage) GetLatestByNIK(nik string) (*models.Penduduk, error) {
 	var p models.Penduduk
-	// Mengambil versi terbaru yang belum dihapus (Soft Delete aware)
+	// Mengambil versi terbaru yang belum dihapus 
 	err := s.DB.Where("nomor_induk_kependudukan = ? AND is_deleted = ?", nik, false).
 		Order("version desc").
 		First(&p).Error
 	return &p, err
 }
 
-// Create menyimpan record baru ke dalam tabel penduduk (Snapshot Baru)
+// Create menyimpan record baru ke dalam tabel penduduk 
 func (s *PendudukStorage) Create(p *models.Penduduk) error {
 	return s.DB.Create(p).Error
 }
 
 
-// GetBySubmission mengambil data berdasarkan ID pengirim (Identik dengan Pendidikan)
+// GetBySubmission mengambil data berdasarkan ID pengirim 
 func (s *PendudukStorage) GetBySubmission(sourceID string) ([]models.Penduduk, error) {
 	var results []models.Penduduk
 	err := s.DB.Where("source_id = ? AND is_deleted = ?", sourceID, false).
@@ -49,14 +49,14 @@ func (s *PendudukStorage) UpdateManual(id string, data map[string]interface{}) e
 }
 
 
-// UpdateAuditStatus menyimpan keputusan Approved/Rejected (Identik dengan Pendidikan)
+// UpdateAuditStatus menyimpan keputusan audir
 func (s *PendudukStorage) UpdateAuditStatus(id string, status string) error {
 	return s.DB.Model(&models.Penduduk{}).
 		Where("id = ?", id).
 		Update("audit_status", status).Error
 }
 
-// GetSample mengambil data acak untuk keperluan audit lapangan (Identik dengan Pendidikan)
+// GetSample mengambil data acak untuk keperluan audit lapangan 
 func (s *PendudukStorage) GetSample(limit int) ([]models.Penduduk, error) {
 	var samples []models.Penduduk
 	err := s.DB.Where("is_deleted = ?", false).

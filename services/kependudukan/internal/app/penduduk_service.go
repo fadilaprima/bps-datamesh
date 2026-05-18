@@ -14,13 +14,22 @@ type PendudukService struct {
 	Storage storage.PendudukStorage
 }
 
-// PendudukSourceRegistry s
-var PendudukSourceRegistry = map[string]struct {
+// Kamus Sumber Data Khusus Kependudukan
+type SourceConfig struct {
+	Name   string
 	IsWali bool
-}{
-	"KEMENDAGRI": {IsWali: true},  // Wali Data Identitas
-	"BPS":        {IsWali: true},  // Wali Data Statistik/Lapangan
-	"DESA_APPS":  {IsWali: false}, // Sumber Data Lokal/Mandiri
+}
+
+var SourceMap = map[int]SourceConfig{
+	1: {Name: "BPS", IsWali: true},
+	2: {Name: "KEMENDAGRI", IsWali: true}, // Wali Data Kependudukan
+	3: {Name: "LAINNYA", IsWali: false},
+}
+
+// Kamus Audit Decision
+var AuditMap = map[int]string{
+	1: "VALID",
+	2: "INVALID",
 }
 
 // ValidatePendudukMetadata melakukan validasi isi data kependudukan secara dinamis
@@ -42,16 +51,16 @@ func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition
 		FieldName string
 		Value     string
 	}{
-		{"nik", p.NIK},
+		{"nomor_induk_kependudukan", p.NIK},
 		{"nama", p.Nama},
-		{"kode_prov", p.KodeProv},
-		{"kode_kab", p.KodeKab},
-		{"kode_kec", p.KodeKec},
-		{"kode_desa", p.KodeDesa},
-		{"kode_prov_ktp", p.KodeProvKTP},
-		{"kode_kab_ktp", p.KodeKabKTP},
-		{"kode_kec_ktp", p.KodeKecKTP},
-		{"kode_desa_ktp", p.KodeDesaKTP},
+		{"kode_provinsi", p.KodeProv},
+		{"kode_kabupaten_kota", p.KodeKab},
+		{"kode_kecamatan", p.KodeKec},
+		{"kode_kelurahan_desa", p.KodeDesa},
+		{"kode_provinsi_ktp", p.KodeProvKTP},
+		{"kode_kabupaten_kota_ktp", p.KodeKabKTP},
+		{"kode_kecamatan_ktp", p.KodeKecKTP},
+		{"kode_kelurahan_desa_ktp", p.KodeDesaKTP},
 		{"jenis_kelamin", p.JenisKelamin},
 	}
 
@@ -62,14 +71,14 @@ func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition
 				return false, fmt.Sprintf("Atribut '%s' wajib diisi (Mandatory)", item.FieldName)
 			}
 
-			// B. Cek Panjang Karakter (Length) - Dinamis menggantikan Hardcode 2, 4, 7, 10
+			// B. Cek Panjang Karakter (Length) 
 			if lengthVal, ok := r["length"].(float64); ok {
 				if item.Value != "" && len(item.Value) != int(lengthVal) {
 					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar BPS", item.FieldName, int(lengthVal))
 				}
 			}
 
-			// C. Cek Enum (Khusus Jenis Kelamin: 1 atau 2)
+			// C. Cek Enum 
 			if item.FieldName == "jenis_kelamin" && item.Value != "" {
 				if options, ok := r["options"].([]interface{}); ok {
 					isValid := false
@@ -103,7 +112,7 @@ func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition
 		}
 	}
 
-	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (AdditionalInfo)
+	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB 
 	var extra map[string]interface{}
 	json.Unmarshal(p.AdditionalInfo, &extra)
 
@@ -126,7 +135,7 @@ func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition
 				isFixed = true
 			}
 
-			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Kantong Ajaib
+			// Jika diwajibkan tapi tidak ada di kolom fisik
 			if !isFixed {
 				if val, exists := extra[field]; !exists || val == "" {
 					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi sesuai standar Metadata Mesh", field)

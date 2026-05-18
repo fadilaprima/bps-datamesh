@@ -3,7 +3,7 @@ package dto
 import "time"
 
 type PendudukIngestRequest struct {
-	// Variabel Identitas Kependudukan (Sesuai Kode Lama & Metadata) 
+	// Variabel Identitas Kependudukan 
 	NIK            string    `json:"nomor_induk_kependudukan"`
 	NoKK           string    `json:"nomor_kartu_keluarga"`
 	Nama           string    `json:"nama"`
@@ -31,12 +31,17 @@ type PendudukIngestRequest struct {
 	KodeKecKTP     string    `json:"kode_kecamatan_ktp"`
 	KodeDesaKTP    string    `json:"kode_kelurahan_desa_ktp"`
 
-	// --- Metadata 
-	Version        int       `json:"version"`
-	SourceID       string    `json:"source_id"`
-	IsWaliData     bool      `json:"is_wali_data"`
-	TrustScore     float64   `json:"trust_score"`
-	ReferenceDate  time.Time `json:"reference_date"`
+	// Metadata untuk Implementasi Data Mesh & Governance 
+	// Version: Untuk pelacakan versi data 
+	Version       int       `json:"version"`
+	// SourceID: Identitas Organisasi Pengirim 
+	SourceID      int    `json:"source_id"`
+	// AuditStatus : Keputusan audit
+	AuditStatus   int    `json:"audit_status"` 
+	// TrustScore: Skor kepercayaan terhadap kualitas data yang dikirim
+	TrustScore    float64   `json:"trust_score"`
+	// ReferenceDate: Tanggal referensi data 
+	ReferenceDate time.Time `json:"reference_date"`
 }
 
 // Respons
