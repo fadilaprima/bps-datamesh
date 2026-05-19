@@ -2,6 +2,7 @@ package database
 
 import (
 	"ketenagakerjaan/models"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
