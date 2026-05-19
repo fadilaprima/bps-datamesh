@@ -9,7 +9,7 @@ import (
 // InitDB menginisialisasi koneksi ke database PostgreSQL untuk Domain Kesejahteraan
 func InitDB() *gorm.DB {
 	
-	dsn := "host=127.0.0.1 user=postgres password=admin dbname=db_kesejahteraan port=5434 sslmode=disable"
+	dsn := "host=127.0.0.1 user=postgres password=admin dbname=db_kesejahteraan port=5436 sslmode=disable"
 	
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {

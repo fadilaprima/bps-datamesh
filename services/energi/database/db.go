@@ -8,8 +8,8 @@ import (
 
 // InitDB menginisialisasi koneksi ke database PostgreSQL untuk Domain Energi
 func InitDB() *gorm.DB {
-	// DSN menggunakan Port 5434 sesuai spesifikasi Domain Energi
-	dsn := "host=127.0.0.1 user=postgres password=admin dbname=postgres port=5434 sslmode=disable"
+	// DSN menggunakan Port 5435 sesuai spesifikasi Domain Energi
+	dsn := "host=127.0.0.1 user=postgres password=admin dbname=postgres port=5435 sslmode=disable"
 	
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
