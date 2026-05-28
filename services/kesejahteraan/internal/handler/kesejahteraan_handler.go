@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -61,7 +62,7 @@ func (h *KesejahteraanHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	return c.JSON(schema)
 }
 
-// B. DATA INGESTION
+// B. DATA INGESTION (DYNAMIC REFLECT ENGINE)
 func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 	// 1. Ambil Skema Aktif (Data Mesh Governance)
 	var activeSchema models.Schema
@@ -100,7 +101,7 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 	var dataList []models.RekamKesejahteraan
 	filename := strings.ToLower(fileHeader.Filename)
 
-	// 3. PARSING LOGIC (CSV AUTO-DETECTION & PARQUET SUPPORT)
+	// 3. PARSING LOGIC (CSV AUTO-DETECTION DENGAN REFLECT)
 	if strings.HasSuffix(filename, ".csv") {
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
@@ -109,79 +110,46 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 		}
 
 		headers := records[0]
-		for i, rec := range records {
-			if i == 0 {
-				continue
-			}
+		kType := reflect.TypeOf(models.RekamKesejahteraan{})
 
-			// Inisialisasi bersih
+		for i, rec := range records {
+			if i == 0 { continue }
 			extraData := make(map[string]interface{})
-			p := models.RekamKesejahteraan{
-				ReferenceDate: refDate,
-			}
+			k := models.RekamKesejahteraan{ReferenceDate: refDate}
+			kValue := reflect.ValueOf(&k).Elem()
 
 			// Mapping variabel Kesejahteraan / Kemensos Regsosek
 			for idx, val := range rec {
+				if idx >= len(headers) { continue }
 				key := strings.ToLower(headers[idx])
-				intVal, _ := strconv.Atoi(val)
+				found := false
 
-				switch key {
-				case "nomor_kartu_keluarga":
-					p.NoKK = val
-				case "desil_nasional":
-					p.DesilNasional = intVal
-				case "bahan_bakar_utama_memasak":
-					p.BahanBakarMemasak = val
-				case "kepemilikan_aset":
-					p.KepemilikanAset = intVal
-				case "aset_bergerak_tabung_gas":
-					p.AsetGas = intVal
-				case "aset_bergerak_lemari_es":
-					p.AsetKulkas = intVal
-				case "aset_bergerak_ac":
-					p.AsetAC = intVal
-				case "aset_bergerak_pemanas_air":
-					p.AsetPemanasAir = intVal
-				case "aset_bergerak_telepon_rumah":
-					p.AsetTelepon = intVal
-				case "aset_bergerak_tv_datar":
-					p.AsetTV = intVal
-				case "aset_bergerak_emas_perhiasan":
-					p.AsetEmas = intVal
-				case "aset_bergerak_komputer_laptop_tablet":
-					p.AsetLaptop = intVal
-				case "aset_bergerak_sepeda_motor":
-					p.AsetMotor = intVal
-				case "aset_bergerak_sepeda":
-					p.AsetSepeda = intVal
-				case "aset_bergerak_mobil":
-					p.AsetMobil = intVal
-				case "aset_bergerak_perahu":
-					p.AsetPerahu = intVal
-				case "aset_bergerak_kapal_perahu_motor":
-					p.AsetPerahuMotor = intVal
-				case "aset_bergerak_smartphone":
-					p.AsetSmartphone = intVal
-				case "aset_tidak_bergerak_lahan_lainnya":
-					p.AsetLahanLain = intVal
-				case "aset_tidak_bergerak_rumah_lainnya":
-					p.AsetRumahLain = intVal
-				case "jumlah_ternak_sapi":
-					p.TernakSapi = intVal
-				case "jumlah_ternak_kerbau":
-					p.TernakKerbau = intVal
-				case "jumlah_ternak_kuda":
-					p.TernakKuda = intVal
-				case "jumlah_ternak_babi":
-					p.TernakBabi = intVal
-				case "jumlah_ternak_kambing_domba":
-					p.TernakKambing = intVal
-				default:
-					extraData[key] = val
+				for fIdx := 0; fIdx < kType.NumField(); fIdx++ {
+					field := kType.Field(fIdx)
+					jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+					
+					if jsonTag == key {
+						found = true
+						fieldVal := kValue.Field(fIdx)
+						if !fieldVal.CanSet() { continue }
+						switch fieldVal.Kind() {
+						case reflect.String: fieldVal.SetString(val)
+						case reflect.Int, reflect.Int32, reflect.Int64:
+							var intVal int64
+							if val != "" { fmt.Sscanf(val, "%d", &intVal) }
+							fieldVal.SetInt(intVal)
+						case reflect.Float32, reflect.Float64:
+							var floatVal float64
+							if val != "" { fmt.Sscanf(val, "%f", &floatVal) }
+							fieldVal.SetFloat(floatVal)
+						}
+						break
+					}
 				}
+				if !found && key != "" { extraData[key] = val }
 			}
-			p.AdditionalInfo, _ = json.Marshal(extraData)
-			dataList = append(dataList, p)
+			k.AdditionalInfo, _ = json.Marshal(extraData)
+			dataList = append(dataList, k)
 		}
 	} else if strings.HasSuffix(filename, ".parquet") {
 		tmpPath := "temp_kesj_" + uuid.New().String() + ".parquet"
@@ -244,4 +212,78 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 		"stats":  fiber.Map{"total": len(dataList), "success": success, "fail": fail},
 		"errors": errorLogs,
 	})
+}
+
+func (h *KesejahteraanHandler) GetValidationStatus(c *fiber.Ctx) error {
+	result, err := h.Service.Storage.GetLatestByNoKK(c.Params("nokk"))
+	status := "PENDING"
+	if err == nil && result != nil { status = result.AuditStatus }
+	return c.JSON(fiber.Map{"nomor_kartu_keluarga": c.Params("nokk"), "status": status, "schema": "DTSEN-KESJ-ACTIVE"})
+}
+
+func (h *KesejahteraanHandler) GetScoring(c *fiber.Ctx) error {
+	result, err := h.Service.Storage.GetLatestByNoKK(c.Params("nokk"))
+	if err != nil || result == nil { return c.Status(404).JSON(fiber.Map{"error": "Data tidak ditemukan"}) }
+	return c.JSON(fiber.Map{
+		"no_kk": result.NoKK, "trust_score": result.TrustScore,
+		"audit_status": result.AuditStatus, "quality_label": "Kalkulasi: 60(Sistem) + 20(Sumber) + 20(Audit)",
+	})
+}
+
+func (h *KesejahteraanHandler) GetProgress(c *fiber.Ctx) error {
+	count, err := h.Service.Storage.CountByNoKK(c.Params("nokk"))
+	status := "NOT_FOUND"
+	if err == nil && count > 0 { status = "COMPLETED_IN_MESH" }
+	return c.JSON(fiber.Map{"nomor_kartu_keluarga": c.Params("nokk"), "status": status, "progress": "100%"})
+}
+
+func (h *KesejahteraanHandler) GetAllDatasets(c *fiber.Ctx) error {
+	fields := c.Query("fields")
+	var fieldList []string
+	if fields != "" { fieldList = strings.Split(fields, ",") }
+	results, err := h.Service.Storage.GetFetchWithFields(fieldList)
+	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data"}) }
+	return c.JSON(results)
+}
+
+func (h *KesejahteraanHandler) GetDatasetDetail(c *fiber.Ctx) error {
+	fields := c.Query("fields")
+	var fieldList []string
+	if fields != "" { fieldList = strings.Split(fields, ",") }
+	result, err := h.Service.Storage.GetDetailWithFields(c.Params("nokk"), fieldList)
+	if err != nil { return c.Status(404).JSON(fiber.Map{"error": "Nomor KK tidak ditemukan"}) }
+	return c.JSON(result)
+}
+
+func (h *KesejahteraanHandler) UpdateDataset(c *fiber.Ctx) error {
+	var payload models.RekamKesejahteraan
+	if err := c.BodyParser(&payload); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"}) }
+	version, err := h.Service.ProcessManualUpdate(c.Params("nokk"), payload)
+	if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
+	return c.JSON(fiber.Map{"message": "Versi baru dibuat", "version": version})
+}
+
+func (h *KesejahteraanHandler) SoftDeleteDataset(c *fiber.Ctx) error {
+	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) }
+	return c.JSON(fiber.Map{"message": "Data diarsipkan"})
+}
+
+func (h *KesejahteraanHandler) GetAuditSamples(c *fiber.Ctx) error {
+	results, err := h.Service.Storage.GetAuditSamples()
+	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit kesejahteraan"}) }
+	if len(results) == 0 { return c.JSON(fiber.Map{"message": "Tidak ada data kesejahteraan terbaru yang perlu diaudit."}) }
+	return c.JSON(results)
+}
+
+func (h *KesejahteraanHandler) SubmitAuditDecision(c *fiber.Ctx) error {
+	var input struct {
+		NoKK    []string `json:"nomor_kartu_keluarga"`
+		Verdict int      `json:"verdict"`
+	}
+	if err := c.BodyParser(&input); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"}) }
+	if len(input.NoKK) == 0 { return c.Status(400).JSON(fiber.Map{"error": "Daftar nomor_kartu_keluarga wajib diisi"}) }
+
+	verdictText, err := h.Service.ProcessAuditDecision(input.NoKK, input.Verdict)
+	if err != nil { return c.Status(400).JSON(fiber.Map{"error": err.Error()}) }
+	return c.JSON(fiber.Map{"message": fmt.Sprintf("Audit kesejahteraan selesai. %d KK diubah menjadi %s", len(input.NoKK), verdictText)})
 }

@@ -10,34 +10,77 @@ type HunianStorage struct {
 	DB *gorm.DB
 }
 
-// GetLatestByNoKK mengambil record terbaru berdasarkan NoKK 
 func (s *HunianStorage) GetLatestByNoKK(noKK string) (*models.RekamHunian, error) {
 	var rh models.RekamHunian
-	// Mengambil versi terbaru untuk NoKK tersebut
-	err := s.DB.Where("nomor_kartu_keluarga = ?", noKK).Order("version desc").First(&rh).Error
+	err := s.DB.Where("nomor_kartu_keluarga = ? AND is_deleted = ?", noKK, false).Order("version desc").First(&rh).Error
 	return &rh, err
 }
 
-// Create menyimpan record baru ke dalam tabel rekam_hunian
 func (s *HunianStorage) Create(rh *models.RekamHunian) error {
 	return s.DB.Create(rh).Error
 }
 
-// GetBySubmission mengambil data berdasarkan ID pengiriman 
+func (s *HunianStorage) CountByNoKK(noKK string) (int64, error) {
+	var count int64
+	err := s.DB.Model(&models.RekamHunian{}).Where("nomor_kartu_keluarga = ?", noKK).Count(&count).Error
+	return count, err
+}
+
 func (s *HunianStorage) GetBySubmission(subID string) ([]models.RekamHunian, error) {
 	var results []models.RekamHunian
-	err := s.DB.Where("source_id = ?", subID).Find(&results).Error
+	err := s.DB.Where("source_id = ? AND is_deleted = ?", subID, false).Find(&results).Error
 	return results, err
 }
 
-// UpdateAuditStatus menyimpan keputusan Approved/Rejected 
-func (s *HunianStorage) UpdateAuditStatus(id string, status string) error {
-	return s.DB.Model(&models.RekamHunian{}).Where("id = ?", id).Update("audit_status", status).Error
+func (s *HunianStorage) GetFetchWithFields(fields []string) ([]models.RekamHunian, error) {
+	var results []models.RekamHunian
+	subQuery := s.DB.Model(&models.RekamHunian{}).Select("MAX(id)").Group("nomor_kartu_keluarga")
+	query := s.DB.Where("id IN (?) AND is_deleted = ?", subQuery, false)
+
+	if len(fields) > 0 && fields[0] != "" {
+		query = query.Select(fields)
+	}
+	err := query.Find(&results).Error
+	return results, err
 }
 
-// GetSample mengambil data acak untuk keperluan audit 
-func (s *HunianStorage) GetSample(limit int) ([]models.RekamHunian, error) {
-	var samples []models.RekamHunian
-	err := s.DB.Limit(limit).Order("RANDOM()").Find(&samples).Error
-	return samples, err
+func (s *HunianStorage) GetDetailWithFields(noKK string, fields []string) (*models.RekamHunian, error) {
+	var result models.RekamHunian
+	query := s.DB.Model(&models.RekamHunian{}).Where("nomor_kartu_keluarga = ?", noKK)
+
+	if len(fields) > 0 && fields[0] != "" {
+		query = query.Select(fields)
+	}
+	err := query.Order("version desc").First(&result).Error
+	return &result, err
+}
+
+func (s *HunianStorage) SoftDelete(id string) error {
+	return s.DB.Model(&models.RekamHunian{}).Where("id = ?", id).Update("is_deleted", true).Error
+}
+
+func (s *HunianStorage) GetAuditSamples() ([]models.RekamHunian, error) {
+	var results []models.RekamHunian
+	query := `
+		SELECT k.* FROM rekam_hunian k
+		INNER JOIN (
+			SELECT nomor_kartu_keluarga, MAX(version) as max_ver
+			FROM rekam_hunian
+			GROUP BY nomor_kartu_keluarga
+		) grouped_k 
+		ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
+		AND k.version = grouped_k.max_ver
+		WHERE k.audit_status = 'PENDING'
+	`
+	err := s.DB.Raw(query).Scan(&results).Error
+	return results, err
+}
+
+func (s *HunianStorage) UpdateBulkAuditDecision(nokkList []string, verdictText string, bonus float64) error {
+	return s.DB.Model(&models.RekamHunian{}).
+		Where("nomor_kartu_keluarga IN ? AND audit_status = ?", nokkList, "PENDING").
+		Updates(map[string]interface{}{
+			"audit_status": verdictText,
+			"trust_score":  gorm.Expr("trust_score + ?", bonus),
+		}).Error
 }

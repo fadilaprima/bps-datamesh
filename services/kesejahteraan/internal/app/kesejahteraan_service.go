@@ -3,7 +3,10 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
+	"time"
+
 	"kesejahteraan/models"
 	"kesejahteraan/storage"
 
@@ -35,7 +38,7 @@ var AuditMap = map[int]string{
 	2: "INVALID",
 }
 
-// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION)
+// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION WITH REFLECT)
 // ValidateKesejahteraanMetadata melakukan validasi isi data secara dinamis berdasarkan skema aktif
 func (s *KesejahteraanService) ValidateKesejahteraanMetadata(k models.RekamKesejahteraan, definition datatypes.JSON) (bool, string) {
 	// 1. Parsing Aturan dari Skema Aktif di Database
@@ -49,52 +52,33 @@ func (s *KesejahteraanService) ValidateKesejahteraanMetadata(k models.RekamKesej
 		return true, "" 
 	}
 
-	// 2. LOGIKA VALIDASI FIELD KESEJAHTERAAN (25 Variabel Utama)
-	// Mapping field struct ke key di JSON Metadata
-	checkList := []struct {
-		FieldName string
-		Value     string
-	}{
-		{"nomor_kartu_keluarga", k.NoKK},
-		{"desil_nasional", fmt.Sprint(k.DesilNasional)},
-		{"bahan_bakar_utama_memasak", k.BahanBakarMemasak},
-		{"kepemilikan_aset", fmt.Sprint(k.KepemilikanAset)},
-		{"aset_bergerak_tabung_gas", fmt.Sprint(k.AsetGas)},
-		{"aset_bergerak_lemari_es", fmt.Sprint(k.AsetKulkas)},
-		{"aset_bergerak_ac", fmt.Sprint(k.AsetAC)},
-		{"aset_bergerak_pemanas_air", fmt.Sprint(k.AsetPemanasAir)},
-		{"aset_bergerak_telepon_rumah", fmt.Sprint(k.AsetTelepon)},
-		{"aset_bergerak_tv_datar", fmt.Sprint(k.AsetTV)},
-		{"aset_bergerak_emas_perhiasan", fmt.Sprint(k.AsetEmas)},
-		{"aset_bergerak_komputer_laptop_tablet", fmt.Sprint(k.AsetLaptop)},
-		{"aset_bergerak_sepeda_motor", fmt.Sprint(k.AsetMotor)},
-		{"aset_bergerak_sepeda", fmt.Sprint(k.AsetSepeda)},
-		{"aset_bergerak_mobil", fmt.Sprint(k.AsetMobil)},
-		{"aset_bergerak_perahu", fmt.Sprint(k.AsetPerahu)},
-		{"aset_bergerak_kapal_perahu_motor", fmt.Sprint(k.AsetPerahuMotor)},
-		{"aset_bergerak_smartphone", fmt.Sprint(k.AsetSmartphone)},
-		{"aset_tidak_bergerak_lahan_lainnya", fmt.Sprint(k.AsetLahanLain)},
-		{"aset_tidak_bergerak_rumah_lainnya", fmt.Sprint(k.AsetRumahLain)},
-		{"jumlah_ternak_sapi", fmt.Sprint(k.TernakSapi)},
-		{"jumlah_ternak_kerbau", fmt.Sprint(k.TernakKerbau)},
-		{"jumlah_ternak_kuda", fmt.Sprint(k.TernakKuda)},
-		{"jumlah_ternak_babi", fmt.Sprint(k.TernakBabi)},
-		{"jumlah_ternak_kambing_domba", fmt.Sprint(k.TernakKambing)},
-	}
+	// 2. LOGIKA VALIDASI FIELD KESEJAHTERAAN (25 Variabel Utama Regsosek via Reflect)
+	val := reflect.ValueOf(k)
+	typ := reflect.TypeOf(k)
+	fixedFields := make(map[string]bool)
 
-	for _, item := range checkList {
-		if r, ok := rules[item.FieldName].(map[string]interface{}); ok {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+		if jsonTag == "" || jsonTag == "-" { continue }
+		
+		fixedFields[jsonTag] = true
+		
+		// Eksekusi logika emas: Jika integer 0, sprintf merubahnya jadi "0" (Lolos Mandatory)
+		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
+
+		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
 			// A. Cek Mandatory (Required)
 			// Catatan: Jika field integer bernilai 0, Sprint menjadikannya "0" sehingga lolos dari cek kosong "".
 			// Ini aman untuk field aset/ternak karena "0" adalah jawaban valid (tidak punya).
-			if r["required"] == true && strings.TrimSpace(item.Value) == "" {
-				return false, fmt.Sprintf("Atribut kesejahteraan '%s' wajib diisi (Mandatory)", item.FieldName)
+			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
+				return false, fmt.Sprintf("Atribut kesejahteraan '%s' wajib diisi (Mandatory)", jsonTag)
 			}
 
 			// B. Cek Panjang Karakter (Length) - Berguna untuk Nomor KK (16 digit)
 			if lengthVal, ok := r["length"].(float64); ok {
-				if item.Value != "" && len(item.Value) != int(lengthVal) {
-					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar", item.FieldName, int(lengthVal))
+				if fieldValue != "" && len(fieldValue) != int(lengthVal) {
+					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar", jsonTag, int(lengthVal))
 				}
 			}
 		}
@@ -106,23 +90,12 @@ func (s *KesejahteraanService) ValidateKesejahteraanMetadata(k models.RekamKesej
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
-		if !ok {
-			continue
-		}
+		if !ok { continue }
 
 		if r["required"] == true {
-			// Cek apakah field ini termasuk kolom fisik tetap (fixed columns)
-			isFixed := false
-			for _, item := range checkList {
-				if item.FieldName == field {
-					isFixed = true
-					break
-				}
-			}
-
-			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Additional Info
-			if !isFixed {
-				if val, exists := extra[field]; !exists || val == "" {
+			// Jika diwajibkan tapi tidak ada di kolom fisik (fixed columns), cari di Additional Info
+			if !fixedFields[field] {
+				if valData, exists := extra[field]; !exists || fmt.Sprintf("%v", valData) == "" {
 					return false, fmt.Sprintf("Atribut tambahan kesejahteraan '%s' wajib diisi sesuai standar Metadata Mesh", field)
 				}
 			}
@@ -165,4 +138,34 @@ func (s *KesejahteraanService) ProcessIngestion(k models.RekamKesejahteraan) (st
 	}
 
 	return "Abaikan", fmt.Errorf("data kesejahteraan yang dikirim lebih usang dibandingkan data di mesh")
+}
+
+func (s *KesejahteraanService) ProcessManualUpdate(nokk string, newData models.RekamKesejahteraan) (int, error) {
+	oldData, err := s.Storage.GetLatestByNoKK(nokk)
+	if err != nil || oldData == nil {
+		return 0, fmt.Errorf("data asli tidak ditemukan")
+	}
+
+	newData.ID = 0
+	newData.Version = oldData.Version + 1
+	newData.AuditStatus = "PENDING"
+	newData.UpdatedAt = time.Now()
+
+	errCreate := s.Storage.Create(&newData)
+	return newData.Version, errCreate
+}
+
+func (s *KesejahteraanService) ProcessAuditDecision(nokkList []string, verdict int) (string, error) {
+	verdictText := "INVALID"
+	bonus := 0.0
+
+	if text, exists := AuditMap[verdict]; exists {
+		verdictText = text
+		if verdict == 1 { bonus = 20.0 }
+	} else {
+		return "", fmt.Errorf("Verdict tidak valid")
+	}
+
+	err := s.Storage.UpdateBulkAuditDecision(nokkList, verdictText, bonus)
+	return verdictText, err
 }

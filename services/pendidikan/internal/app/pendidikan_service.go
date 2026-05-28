@@ -3,9 +3,13 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+
 	"pendidikan/models"
 	"pendidikan/storage"
-	"strconv"
 
 	"gorm.io/datatypes"
 )
@@ -64,7 +68,18 @@ func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidika
 		}
 	}
 
-	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (AdditionalInfo)
+	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (AdditionalInfo) DENGAN REFLECT
+	// Ambil daftar tag JSON dari struct fisik
+	typ := reflect.TypeOf(models.RiwayatPendidikan{})
+	fixedFields := make(map[string]bool)
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+		if jsonTag != "" && jsonTag != "-" {
+			fixedFields[jsonTag] = true
+		}
+	}
+
 	// Kita cek apakah ada atribut di AdditionalInfo yang diwajibkan oleh skema
 	var extra map[string]interface{}
 	json.Unmarshal(p.AdditionalInfo, &extra)
@@ -75,11 +90,8 @@ func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidika
 
 		// Jika di skema bilang field ini "required", tapi di struct utama gak ada (berarti di extra)
 		if r["required"] == true {
-			// Cek apakah field ini adalah salah satu kolom tetap
-			isFixedColumn := (field == "nik" || field == "partisipasi" || field == "jenjang" || field == "kelas" || field == "ijazah")
-			
-			if !isFixedColumn {
-				if val, exists := extra[field]; !exists || val == "" {
+			if !fixedFields[field] { // Cek dinamis, menggantikan isFixedColumn manual
+				if val, exists := extra[field]; !exists || fmt.Sprintf("%v", val) == "" {
 					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi sesuai skema", field)
 				}
 			}
@@ -122,4 +134,44 @@ func (s *PendidikanService) ProcessIngestion(p models.RiwayatPendidikan) (string
 	}
 
 	return "Abaikan", fmt.Errorf("data lebih lama dibandingkan data di database")
+}
+
+// Logika Bisnis untuk Manual Update dari PUT Dataset
+func (s *PendidikanService) ProcessManualUpdate(nik string, newData models.RiwayatPendidikan) (int, error) {
+	oldData, err := s.Storage.GetLatestByNIK(nik)
+	if err != nil || oldData == nil {
+		return 0, fmt.Errorf("data asli tidak ditemukan")
+	}
+
+	// LOGIKA RESET: Jika data berubah, harus audit ulang (Score -20)
+	newData.ID = 0
+	newData.Version = oldData.Version + 1
+	newData.AuditStatus = "PENDING"
+	newData.UpdatedAt = time.Now()
+
+	// Skor kembali ke base (Sistem 60 + Sumber 20/0)
+	if newData.IsWaliData {
+		newData.TrustScore = 80.0
+	} else {
+		newData.TrustScore = 60.0
+	}
+
+	errCreate := s.Storage.Create(&newData)
+	return newData.Version, errCreate
+}
+
+// Logika Bisnis Audit
+func (s *PendidikanService) ProcessAuditDecision(nikList []string, verdict int) (string, error) {
+	verdictText := "INVALID"
+	bonus := 0.0
+
+	if text, exists := AuditMap[verdict]; exists {
+		verdictText = text
+		if verdict == 1 { bonus = 20.0 }
+	} else {
+		return "", fmt.Errorf("Verdict tidak valid. Gunakan 1 (VALID) atau 2 (INVALID)")
+	}
+
+	err := s.Storage.UpdateBulkAuditDecision(nikList, verdictText, bonus)
+	return verdictText, err
 }

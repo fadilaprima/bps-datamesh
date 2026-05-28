@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,6 @@ func (h *PendidikanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	}
 
 	domain := c.Params("domain", "pendidikan")
-
 	h.Service.Storage.DB.Model(&models.Schema{}).
 		Where("domain = ? AND status = ?", domain, "ACTIVE").
 		Update("status", "ARCHIVED")
@@ -74,7 +74,6 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 
 	sourceIDStr := c.FormValue("source_id", "3") // Default: 3 (LAINNYA)
 	sourceIDInt, _ := strconv.Atoi(sourceIDStr)
-
 	sourceName := "LAINNYA"
 	isWali := false
 	trustScore := 60.0
@@ -83,11 +82,9 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 	if config, exists := app.SourceMap[sourceIDInt]; exists {
 		sourceName = config.Name
 		isWali = config.IsWali
-		if isWali {
-			trustScore += 20.0
-		}
+		if isWali { trustScore += 20.0 }
 	} else {
-		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (KEMENDAGRI), 3 (LAINNYA)"})
+		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (KEMENDIKBUD), 3 (LAINNYA)"})
 	}
 
 	refDate, _ := time.Parse("2006-01-02", c.FormValue("reference_date", time.Now().Format("2006-01-02")))
@@ -97,7 +94,7 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 	var dataList []models.RiwayatPendidikan
 	filename := strings.ToLower(fileHeader.Filename)
 
-	// 3. PARSING LOGIC (CSV, PARQUET, JSON)
+	// 3. PARSING LOGIC (CSV, PARQUET, JSON) - WITH REFLECT ENGINE
 	if strings.HasSuffix(filename, ".csv") {
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
@@ -106,32 +103,41 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 		}
 
 		headers := records[0]
-		for i, rec := range records {
-			if i == 0 {
-				continue
-			}
+		pendType := reflect.TypeOf(models.RiwayatPendidikan{})
 
+		for i, rec := range records {
+			if i == 0 { continue }
 			extraData := make(map[string]interface{})
-			w := models.RiwayatPendidikan{
-				ReferenceDate: refDate,
-			}
+			w := models.RiwayatPendidikan{ReferenceDate: refDate}
+			pendValue := reflect.ValueOf(&w).Elem()
 
 			for idx, val := range rec {
+				if idx >= len(headers) { continue }
 				key := strings.ToLower(headers[idx])
-				switch key {
-				case "nomor_induk_kependudukan":
-					w.NIK = val
-				case "partisipasi_sekolah":
-					w.Partisipasi = val
-				case "jenjang_tertinggi_yang_diduduki":
-					w.Jenjang = val
-				case "kelas_tertinggi_yang_diduduki":
-					w.Kelas = val
-				case "ijazah_tertinggi_yang_dimiliki":
-					w.Ijazah = val
-				default:
-					extraData[key] = val
+				found := false
+
+				for fIdx := 0; fIdx < pendType.NumField(); fIdx++ {
+					field := pendType.Field(fIdx)
+					jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+					if jsonTag == key {
+						found = true
+						fieldVal := pendValue.Field(fIdx)
+						if !fieldVal.CanSet() { continue }
+						switch fieldVal.Kind() {
+						case reflect.String: fieldVal.SetString(val)
+						case reflect.Int, reflect.Int32, reflect.Int64:
+							var intVal int64
+							if val != "" { fmt.Sscanf(val, "%d", &intVal) }
+							fieldVal.SetInt(intVal)
+						case reflect.Float32, reflect.Float64:
+							var floatVal float64
+							if val != "" { fmt.Sscanf(val, "%f", &floatVal) }
+							fieldVal.SetFloat(floatVal)
+						}
+						break
+					}
 				}
+				if !found && key != "" { extraData[key] = val }
 			}
 			w.AdditionalInfo, _ = json.Marshal(extraData)
 			dataList = append(dataList, w)
@@ -154,7 +160,6 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 			os.Remove(tmpPath)
 			dataList = res
 		}
-
 	} else {
 		body, _ := io.ReadAll(file)
 		json.Unmarshal(body, &dataList)
@@ -171,9 +176,7 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 		dataList[i].AuditStatus = "PENDING"
 		dataList[i].SchemaVersion = fmt.Sprintf("v%d", activeSchema.Version)
 
-		if dataList[i].TrustScore == 0 {
-			dataList[i].TrustScore = trustScore
-		}
+		if dataList[i].TrustScore == 0 { dataList[i].TrustScore = trustScore }
 
 		// Validasi Metadata
 		if ok, msg := h.Service.ValidatePendidikanMetadata(dataList[i], activeSchema.Definition); !ok {
@@ -197,4 +200,83 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 		"stats":  fiber.Map{"total": len(dataList), "success": success, "fail": fail},
 		"errors": errorLogs,
 	})
+}
+
+func (h *PendidikanHandler) GetValidationStatus(c *fiber.Ctx) error {
+	result, err := h.Service.Storage.GetLatestByNIK(c.Params("nik"))
+	status := "PENDING" // PENDING / VALID / INVALID
+	if err == nil && result != nil { status = result.AuditStatus }
+	return c.JSON(fiber.Map{"nik": c.Params("nik"), "status": status, "schema": "DTSEN-PEND-ACTIVE"})
+}
+
+func (h *PendidikanHandler) GetScoring(c *fiber.Ctx) error {
+	result, err := h.Service.Storage.GetLatestByNIK(c.Params("nik"))
+	if err != nil || result == nil { return c.Status(404).JSON(fiber.Map{"error": "Data tidak ditemukan"}) }
+	return c.JSON(fiber.Map{
+		"nik": result.NIK, "trust_score": result.TrustScore,
+		"is_walidata": result.IsWaliData, "audit_status": result.AuditStatus,
+		"quality_label": "Kalkulasi: 60(Sistem) + 20(Sumber) + 20(Audit)",
+	})
+}
+
+func (h *PendidikanHandler) GetProgress(c *fiber.Ctx) error {
+	count, err := h.Service.Storage.CountByNIK(c.Params("nik"))
+	status := "NOT_FOUND"
+	if err == nil && count > 0 { status = "COMPLETED_IN_MESH" }
+	return c.JSON(fiber.Map{"nik": c.Params("nik"), "status": status, "progress": "100%"})
+}
+
+func (h *PendidikanHandler) GetAllDatasets(c *fiber.Ctx) error {
+	fields := c.Query("fields")
+	var fieldList []string
+	if fields != "" { fieldList = strings.Split(fields, ",") }
+	results, err := h.Service.Storage.GetFetchWithFields(fieldList)
+	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data"}) }
+	return c.JSON(results)
+}
+
+func (h *PendidikanHandler) GetDatasetDetail(c *fiber.Ctx) error {
+	fields := c.Query("fields")
+	var fieldList []string
+	if fields != "" { fieldList = strings.Split(fields, ",") }
+	result, err := h.Service.Storage.GetDetailWithFields(c.Params("nik"), fieldList)
+	if err != nil { return c.Status(404).JSON(fiber.Map{"error": "NIK tidak ditemukan"}) }
+	return c.JSON(result)
+}
+
+func (h *PendidikanHandler) UpdateDataset(c *fiber.Ctx) error {
+	var payload models.RiwayatPendidikan
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
+	}
+	version, err := h.Service.ProcessManualUpdate(c.Params("nik"), payload)
+	if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
+	return c.JSON(fiber.Map{"message": "Versi baru dibuat, status kembali PENDING", "version": version})
+}
+
+func (h *PendidikanHandler) SoftDeleteDataset(c *fiber.Ctx) error {
+	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal nonaktifkan data"})
+	}
+	return c.JSON(fiber.Map{"message": "Data dinonaktifkan (Soft Delete)"})
+}
+
+func (h *PendidikanHandler) GetAuditSamples(c *fiber.Ctx) error {
+	results, err := h.Service.Storage.GetAuditSamples()
+	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit pendidikan"}) }
+	if len(results) == 0 { return c.JSON(fiber.Map{"message": "Tidak ada data pendidikan terbaru yang perlu diaudit."}) }
+	return c.JSON(results)
+}
+
+func (h *PendidikanHandler) SubmitAuditDecision(c *fiber.Ctx) error {
+	var input struct {
+		NIK     []string `json:"nik"`
+		Verdict int      `json:"verdict"`
+	}
+	if err := c.BodyParser(&input); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"}) }
+	if len(input.NIK) == 0 { return c.Status(400).JSON(fiber.Map{"error": "List NIK tidak boleh kosong"}) }
+
+	verdictText, err := h.Service.ProcessAuditDecision(input.NIK, input.Verdict)
+	if err != nil { return c.Status(400).JSON(fiber.Map{"error": err.Error()}) }
+	return c.JSON(fiber.Map{"message": fmt.Sprintf("Berhasil memproses %d NIK menjadi %s", len(input.NIK), verdictText)})
 }
