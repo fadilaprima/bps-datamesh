@@ -173,10 +173,10 @@ func main() {
 			var results []models.Penduduk
 
 			query := `
-				SELECT k.* FROM Penduduk k
+				SELECT k.* FROM Penduduks k
 				INNER JOIN (
 					SELECT nomor_induk_kependudukan, MAX(version) as max_ver
-					FROM Penduduk
+					FROM Penduduks
 					GROUP BY nomor_induk_kependudukan
 				) grouped_k 
 				ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan
@@ -220,7 +220,7 @@ func main() {
 
 			// GORM Update berdasarkan Array NIK
 			err := db.Model(&models.Penduduk{}).
-				Where("nik IN ? AND audit_status = ?", input.NIK, "PENDING").
+				Where("nomor_induk_kependudukan IN ? AND audit_status = ?", input.NIK, "PENDING").
 				Updates(map[string]interface{}{
 					"audit_status": verdictText,
 					"trust_score":  gorm.Expr("trust_score + ?", bonus),

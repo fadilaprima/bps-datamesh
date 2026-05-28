@@ -21,7 +21,7 @@ type RiwayatPendidikan struct {
 	ReferenceDate time.Time `gorm:"column:reference_date" json:"reference_date"`         // Tanggal referensi data
 	UpdatedAt     time.Time `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"` // Timestamp pembaruan record
 	IsDeleted     bool      `gorm:"default:false" json:"is_deleted"`
-	AuditStatus   string    `gorm:"default:'PENDING'" json:"audit_status"` // PENDING, VALID, INVALID
+	AuditStatus   string `gorm:"column:audit_status;type:varchar(20);default:'PENDING'" json:"audit_status"`
 	SchemaVersion string    `json:"schema_version"`
 	
 }

@@ -121,36 +121,46 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 				ReferenceDate: refDate,
 			}
 
-			// Mapping dengan alias cerdas agar data tidak mudah nyasar ke JSONB
+			// Mapping agar tidak nyasar ke JSONB
 			for idx, val := range rec {
 				key := strings.ToLower(headers[idx])
 				switch key {
+
+				// 1. DATA IDENTITAS
 				case "nomor_induk_kependudukan":
 					p.NIK = val
-				case "nokk", "nkk", "nomor_kartu_keluarga":
+				case "nomor_kartu_keluarga":
 					p.NoKK = val
-				case "nama", "nama_anggota", "nama_anggota_keluarga":
+				case "nama":
 					p.Nama = val
-				case "jml_anggota", "jumlah_anggota", "jumlah_anggota_keluarga":
+				case "nama_anggota_keluarga":
+					p.NamaAnggota = val
+				case "jumlah_anggota_keluarga":
 					fmt.Sscanf(val, "%d", &p.JmlAnggota)
-				case "tgl_lahir", "tanggal_lahir":
+
+				// 2. DATA DEMOGRAFI & STATUS
+				case "tanggal_lahir":
 					p.TglLahir = val
 				case "jenis_kelamin":
 					p.JenisKelamin = val
-				case "status_kawin", "status_perkawinan":
+				case "status_kawin":
 					p.StatusKawin = val
-				case "status_hubungan", "status_hubungan_keluarga":
+				case "status_hubungan_keluarga":
 					p.StatusHubungan = val
+
+				// 3. DATA WILAYAH DOMISILI
 				case "alamat":
 					p.Alamat = val
-				case "kode_prov", "kode_provinsi":
+				case "kode_provinsi":
 					p.KodeProv = val
-				case "kode_kab", "kode_kabupaten", "kode_kabupaten_kota":
+				case "kode_kabupaten_kota":
 					p.KodeKab = val
-				case "kode_kec", "kode_kecamatan":
+				case "kode_kecamatan":
 					p.KodeKec = val
-				case "kode_desa", "kode_kelurahan_desa":
+				case "kode_kelurahan_desa":
 					p.KodeDesa = val
+
+				// 4. DATA WILAYAH KTP
 				case "alamat_ktp":
 					p.AlamatKTP = val
 				case "rt_ktp":
@@ -159,13 +169,13 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 					p.RWKTP = val
 				case "dusun_ktp":
 					p.DusunKTP = val
-				case "kode_prov_ktp", "kode_provinsi_ktp":
+				case "kode_provinsi_ktp":
 					p.KodeProvKTP = val
-				case "kode_kab_ktp", "kode_kabupaten_ktp", "kode_kabupaten_kota_ktp":
+				case "kode_kabupaten_kota_ktp":
 					p.KodeKabKTP = val
 				case "kode_kec_ktp", "kode_kecamatan_ktp":
 					p.KodeKecKTP = val
-				case "kode_desa_ktp", "kode_kelurahan_desa_ktp":
+				case "kode_kelurahan_desa_ktp":
 					p.KodeDesaKTP = val
 				default:
 					extraData[key] = val
@@ -174,6 +184,7 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 			p.AdditionalInfo, _ = json.Marshal(extraData)
 			dataList = append(dataList, p)
 		}
+
 	} else if strings.HasSuffix(filename, ".parquet") {
 		tmpPath := "temp_penduduk_" + uuid.New().String() + ".parquet"
 		fw, _ := os.Create(tmpPath)
@@ -229,10 +240,10 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"status": "Ingestion Finished",
-		"domain": "penduduk",
-		"schema": activeSchema.Name + " v" + fmt.Sprint(activeSchema.Version),
-		"stats":  fiber.Map{"total": len(dataList), "success": success, "fail": fail},
-		"errors": errorLogs,
+		"status":   "Ingestion Finished",
+		"domain":   "penduduk",
+		"schema":   activeSchema.Name + " v" + fmt.Sprint(activeSchema.Version),
+		"stats":    fiber.Map{"total": len(dataList), "success": success, "fail": fail},
+		"errors":   errorLogs,
 	})
 }

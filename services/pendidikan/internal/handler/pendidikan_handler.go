@@ -123,11 +123,11 @@ func (h *PendidikanHandler) IngestData(c *fiber.Ctx) error {
 					w.NIK = val
 				case "partisipasi_sekolah":
 					w.Partisipasi = val
-				case "jenjang_tertinggi":
+				case "jenjang_tertinggi_yang_diduduki":
 					w.Jenjang = val
-				case "kelas_tertinggi":
+				case "kelas_tertinggi_yang_diduduki":
 					w.Kelas = val
-				case "ijazah_tertinggi":
+				case "ijazah_tertinggi_yang_dimiliki":
 					w.Ijazah = val
 				default:
 					extraData[key] = val

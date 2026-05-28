@@ -3,7 +3,10 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
+	"time"
+
 	"wilayah/models"
 	"wilayah/storage"
 
@@ -45,37 +48,30 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 	}
 
 	rules, ok := schemaMap["definition"].(map[string]interface{})
-	if !ok {
-		return true, "" 
-	}
+	if !ok { return true, "" }
 
-	// 2. LOGIKA VALIDASI HIRARKI (Prov, Kab, Kec, Desa)
-	// Mapping field struct ke key di JSON Metadata
-	checkList := []struct {
-		FieldName string
-		Value     string
-	}{
-		{"kode_provinsi", w.KodeProv},
-		{"kode_kabupaten_kota", w.KodeKab},
-		{"kode_kecamatan", w.KodeKec},
-		{"kode_kelurahan_desa", w.KodeDesa},
-		{"provinsi", w.Provinsi},
-		{"kabupaten_kota", w.Kabupaten},
-		{"kecamatan", w.Kecamatan},
-		{"kelurahan_desa", w.Desa},
-	}
+	// 2. LOGIKA VALIDASI HIRARKI (Prov, Kab, Kec, Desa) - Ekstrak Struct Menggunakan Reflect
+	val := reflect.ValueOf(w)
+	typ := reflect.TypeOf(w)
+	fixedFields := make(map[string]bool)
 
-	for _, item := range checkList {
-		if r, ok := rules[item.FieldName].(map[string]interface{}); ok {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+		
+		if jsonTag == "" || jsonTag == "-" { continue }
+		fixedFields[jsonTag] = true
+		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
+
+		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
 			// A. Cek Mandatory (Required)
-			if r["required"] == true && strings.TrimSpace(item.Value) == "" {
-				return false, fmt.Sprintf("Atribut wilayah '%s' wajib diisi (Mandatory)", item.FieldName)
+			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
+				return false, fmt.Sprintf("Atribut wilayah '%s' wajib diisi (Mandatory)", jsonTag)
 			}
-
 			// B. Cek Panjang Karakter (Length)
 			if lengthVal, ok := r["length"].(float64); ok {
-				if item.Value != "" && len(item.Value) != int(lengthVal) {
-					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar MFD BPS", item.FieldName, int(lengthVal))
+				if fieldValue != "" && len(fieldValue) != int(lengthVal) {
+					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar MFD BPS", jsonTag, int(lengthVal))
 				}
 			}
 		}
@@ -87,25 +83,12 @@ func (s *WilayahService) ValidateWilayahMetadata(w models.MasterWilayah, definit
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		if r["required"] == true {
-			// Cek apakah field ini termasuk kolom fisik tetap (fixed columns)
-			isFixed := false
-			for _, item := range checkList {
-				if item.FieldName == field {
-					isFixed = true
-					break
-				}
-			}
-
-			// Jika diwajibkan tapi tidak ada di kolom fisik, cari di Additional Info
-			if !isFixed {
-				if val, exists := extra[field]; !exists || val == "" {
-					return false, fmt.Sprintf("Atribut tambahan wilayah '%s' wajib diisi sesuai standar Metadata Mesh", field)
-				}
+		if !ok { continue }
+		
+		// Jika dia required tapi BUKAN kolom fixed/struct, cari di extra data JSONB
+		if r["required"] == true && !fixedFields[field] {
+			if valData, exists := extra[field]; !exists || fmt.Sprintf("%v", valData) == "" {
+				return false, fmt.Sprintf("Atribut tambahan wilayah '%s' wajib diisi sesuai standar Metadata Mesh", field)
 			}
 		}
 	}
@@ -123,9 +106,7 @@ func (s *WilayahService) ProcessIngestion(w models.MasterWilayah) (string, error
 	if err != nil {
 		w.Version = 1
 		w.AuditStatus = "PENDING"
-		if errCreate := s.Storage.Create(&w); errCreate != nil {
-			return "Error", errCreate
-		}
+		if errCreate := s.Storage.Create(&w); errCreate != nil { return "Error", errCreate }
 		return "Sukses v1 (Initial Entry)", nil
 	}
 
@@ -139,11 +120,52 @@ func (s *WilayahService) ProcessIngestion(w models.MasterWilayah) (string, error
 		w.Version = last.Version + 1
 		w.AuditStatus = "PENDING" // Reset audit untuk setiap perubahan data
 
-		if errCreate := s.Storage.Create(&w); errCreate != nil {
-			return "Error", errCreate
-		}
+		if errCreate := s.Storage.Create(&w); errCreate != nil { return "Error", errCreate }
 		return fmt.Sprintf("Sukses v%d (Wilayah Updated)", w.Version), nil
 	}
 
 	return "Abaikan", fmt.Errorf("data wilayah yang dikirim lebih usang dibandingkan data di mesh")
+}
+
+// 4. KOREKSI & AUDIT (Manual Update & Audit Decision)
+// Logika Bisnis untuk Koreksi Nilai PUT Dataset
+func (s *WilayahService) ProcessManualUpdate(kodeDesa string, newData models.MasterWilayah) (int, error) {
+	oldData, err := s.Storage.GetLatestByKode(kodeDesa)
+	if err != nil || oldData == nil {
+		return 0, fmt.Errorf("data asli tidak ditemukan")
+	}
+
+	// LOGIKA RESET SCD TYPE 2
+	newData.ID = 0
+	newData.Version = oldData.Version + 1
+	newData.AuditStatus = "PENDING"
+	newData.UpdatedAt = time.Now()
+
+	// Skor kembali ke base (60 Sistem + 20 Sumber jika Walidata)
+	if newData.IsWaliData {
+		newData.TrustScore = 80.0
+	} else {
+		newData.TrustScore = 60.0
+	}
+
+	errCreate := s.Storage.Create(&newData)
+	return newData.Version, errCreate
+}
+
+// ProcessAuditDecision memproses logika bisnis penentuan status validasi silang & bonus score
+func (s *WilayahService) ProcessAuditDecision(kodeDesa []string, verdict int) (string, error) {
+	verdictText := "INVALID"
+	bonus := 0.0
+
+	// Penerjemah Angka ke Teks & Logika Bonus
+	if text, exists := AuditMap[verdict]; exists {
+		verdictText = text
+		if verdict == 1 { bonus = 20.0 }
+	} else {
+		return "", fmt.Errorf("verdict tidak valid. Gunakan 1 (VALID) atau 2 (INVALID)")
+	}
+
+	// Update ke Database
+	err := s.Storage.UpdateBulkAuditDecision(kodeDesa, verdictText, bonus)
+	return verdictText, err
 }
