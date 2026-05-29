@@ -62,10 +62,10 @@ func (s *EnergiStorage) SoftDelete(id string) error {
 func (s *EnergiStorage) GetAuditSamples() ([]models.RekamEnergi, error) {
 	var results []models.RekamEnergi
 	query := `
-		SELECT k.* FROM rekam_energi k
+		SELECT k.* FROM rekam_energis k
 		INNER JOIN (
 			SELECT nomor_kartu_keluarga, MAX(version) as max_ver
-			FROM rekam_energi
+			FROM rekam_energis
 			GROUP BY nomor_kartu_keluarga
 		) grouped_k 
 		ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
