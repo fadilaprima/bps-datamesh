@@ -2,6 +2,7 @@ package storage
 
 import (
 	"kesehatan/models"
+
 	"gorm.io/gorm"
 )
 
@@ -9,7 +10,7 @@ type KesehatanStorage struct {
 	DB *gorm.DB
 }
 
-// GetLatestByNIK mengambil record terbaru berdasarkan NIK 
+// GetLatestByNIK mengambil record terbaru berdasarkan NIK
 func (s *KesehatanStorage) GetLatestByNIK(nik string) (*models.RekamKesehatan, error) {
 	var rp models.RekamKesehatan
 	// Mengambil versi terbaru untuk NIK tersebut
@@ -29,7 +30,7 @@ func (s *KesehatanStorage) CountByNIK(nik string) (int64, error) {
 	return count, err
 }
 
-// GetBySubmission mengambil data berdasarkan ID pengiriman 
+// GetBySubmission mengambil data berdasarkan ID pengiriman
 func (s *KesehatanStorage) GetBySubmission(subID string) ([]models.RekamKesehatan, error) {
 	var results []models.RekamKesehatan
 	err := s.DB.Where("source_id = ? AND is_deleted = ?", subID, false).Find(&results).Error
@@ -47,7 +48,9 @@ func (s *KesehatanStorage) GetFetchWithFields(fields []string) ([]models.RekamKe
 	subQuery := s.DB.Model(&models.RekamKesehatan{}).Select("MAX(id)").Group("nomor_induk_kependudukan")
 	query := s.DB.Where("id IN (?) AND is_deleted = ?", subQuery, false)
 
-	if len(fields) > 0 && fields[0] != "" { query = query.Select(fields) }
+	if len(fields) > 0 && fields[0] != "" {
+		query = query.Select(fields)
+	}
 	err := query.Find(&results).Error
 	return results, err
 }
@@ -57,7 +60,9 @@ func (s *KesehatanStorage) GetDetailWithFields(nik string, fields []string) (*mo
 	var result models.RekamKesehatan
 	query := s.DB.Model(&models.RekamKesehatan{}).Where("nomor_induk_kependudukan = ?", nik)
 
-	if len(fields) > 0 && fields[0] != "" { query = query.Select(fields) }
+	if len(fields) > 0 && fields[0] != "" {
+		query = query.Select(fields)
+	}
 	err := query.Order("version desc").First(&result).Error
 	return &result, err
 }
@@ -67,7 +72,7 @@ func (s *KesehatanStorage) UpdateAuditStatus(id string, status string) error {
 	return s.DB.Model(&models.RekamKesehatan{}).Where("id = ?", id).Update("audit_status", status).Error
 }
 
-// GetSample mengambil data acak untuk keperluan audit 
+// GetSample mengambil data acak untuk keperluan audit
 func (s *KesehatanStorage) GetSample(limit int) ([]models.RekamKesehatan, error) {
 	var samples []models.RekamKesehatan
 	err := s.DB.Where("is_deleted = ?", false).Limit(limit).Order("RANDOM()").Find(&samples).Error
@@ -78,10 +83,10 @@ func (s *KesehatanStorage) GetSample(limit int) ([]models.RekamKesehatan, error)
 func (s *KesehatanStorage) GetAuditSamples() ([]models.RekamKesehatan, error) {
 	var results []models.RekamKesehatan
 	query := `
-		SELECT k.* FROM rekam_kesehatan k
+		SELECT k.* FROM rekam_kesehatans k
 		INNER JOIN (
 			SELECT nomor_induk_kependudukan, MAX(version) as max_ver
-			FROM rekam_kesehatan
+			FROM rekam_kesehatans
 			GROUP BY nomor_induk_kependudukan
 		) grouped_k 
 		ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan 

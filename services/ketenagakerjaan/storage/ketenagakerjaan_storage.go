@@ -31,7 +31,9 @@ func (s *KetenagakerjaanStorage) GetFetchWithFields(fields []string) ([]models.R
 	subQuery := s.DB.Model(&models.RekamKetenagakerjaan{}).Select("MAX(id)").Group("nomor_induk_kependudukan")
 	query := s.DB.Where("id IN (?) AND is_deleted = ?", subQuery, false)
 
-	if len(fields) > 0 && fields[0] != "" { query = query.Select(fields) }
+	if len(fields) > 0 && fields[0] != "" {
+		query = query.Select(fields)
+	}
 	err := query.Find(&results).Error
 	return results, err
 }
@@ -40,7 +42,9 @@ func (s *KetenagakerjaanStorage) GetDetailWithFields(nik string, fields []string
 	var result models.RekamKetenagakerjaan
 	query := s.DB.Model(&models.RekamKetenagakerjaan{}).Where("nomor_induk_kependudukan = ?", nik)
 
-	if len(fields) > 0 && fields[0] != "" { query = query.Select(fields) }
+	if len(fields) > 0 && fields[0] != "" {
+		query = query.Select(fields)
+	}
 	err := query.Order("version desc").First(&result).Error
 	return &result, err
 }

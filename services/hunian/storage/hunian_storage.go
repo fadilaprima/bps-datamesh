@@ -62,10 +62,10 @@ func (s *HunianStorage) SoftDelete(id string) error {
 func (s *HunianStorage) GetAuditSamples() ([]models.RekamHunian, error) {
 	var results []models.RekamHunian
 	query := `
-		SELECT k.* FROM rekam_hunian k
+		SELECT k.* FROM rekam_hunians k
 		INNER JOIN (
 			SELECT nomor_kartu_keluarga, MAX(version) as max_ver
-			FROM rekam_hunian
+			FROM rekam_hunians
 			GROUP BY nomor_kartu_keluarga
 		) grouped_k 
 		ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
