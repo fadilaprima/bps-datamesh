@@ -59,21 +59,28 @@ func (s *EnergiStorage) SoftDelete(id string) error {
 	return s.DB.Model(&models.RekamEnergi{}).Where("id = ?", id).Update("is_deleted", true).Error
 }
 
-func (s *EnergiStorage) GetAuditSamples() ([]models.RekamEnergi, error) {
-	var results []models.RekamEnergi
-	query := `
-		SELECT k.* FROM rekam_energis k
-		INNER JOIN (
-			SELECT nomor_kartu_keluarga, MAX(version) as max_ver
-			FROM rekam_energis
-			GROUP BY nomor_kartu_keluarga
-		) grouped_k 
-		ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
-		AND k.version = grouped_k.max_ver
-		WHERE k.audit_status = 'PENDING'
-	`
-	err := s.DB.Raw(query).Scan(&results).Error
-	return results, err
+// GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
+func (s *EnergiStorage) GetAuditSamples(limit int) ([]models.RekamEnergi, error) {
+    var results []models.RekamEnergi
+    
+    // Query dengan penambahan RANDOM() dan limit
+    query := `
+        SELECT k.* FROM rekam_energis k
+        INNER JOIN (
+            SELECT nomor_kartu_keluarga, MAX(version) as max_ver
+            FROM rekam_energis
+            GROUP BY nomor_kartu_keluarga
+        ) grouped_k 
+        ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
+        AND k.version = grouped_k.max_ver
+        WHERE k.audit_status = 'PENDING'
+        ORDER BY RANDOM()
+        LIMIT ?
+    `
+    
+    // Oper limit ke Raw query
+    err := s.DB.Raw(query, limit).Scan(&results).Error
+    return results, err
 }
 
 func (s *EnergiStorage) UpdateBulkAuditDecision(nokkList []string, verdictText string, bonus float64) error {

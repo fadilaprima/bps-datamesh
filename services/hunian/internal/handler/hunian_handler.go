@@ -254,10 +254,23 @@ func (h *HunianHandler) SoftDeleteDataset(c *fiber.Ctx) error {
 }
 
 func (h *HunianHandler) GetAuditSamples(c *fiber.Ctx) error {
-	results, err := h.Service.Storage.GetAuditSamples()
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"}) }
-	if len(results) == 0 { return c.JSON(fiber.Map{"message": "Tidak ada data terbaru yang perlu diaudit."}) }
-	return c.JSON(results)
+	// 1. Ambil limit dari query param, default ke 10 jika tidak diisi
+    limit, err := strconv.Atoi(c.Query("limit", "10"))
+    if err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"})
+    }
+
+    // 2. Oper 'limit' ke Service
+    results, err := h.Service.Storage.GetAuditSamples(limit) 
+    if err != nil {
+        return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"})
+    }
+    
+    if len(results) == 0 {
+        return c.JSON(fiber.Map{"message": "Tidak ada data kependudukan terbaru yang perlu diaudit."})
+    }
+    
+    return c.JSON(results)
 }
 
 func (h *HunianHandler) SubmitAuditDecision(c *fiber.Ctx) error {

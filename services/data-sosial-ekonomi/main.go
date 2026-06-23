@@ -12,30 +12,29 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
-// 1. Registry: Peta Kekuatan Data Mesh
 type DomainInfo struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
 	Owner   string `json:"owner"`
-	Path    string `json:"path"`     
-	JoinKey string `json:"join_key"` 
+	Path    string `json:"path"`
+	JoinKey string `json:"join_key"`
 }
 
 // Daftar 8 Domain BPS yang terhubung di Data Mesh
 var meshRegistry = []DomainInfo{
-	{Name: "Kependudukan", BaseURL: "http://localhost:8081", Owner: "KEMENDAGRI", Path: "kemendagri", JoinKey: "NIK"},
+	{Name: "Kependudukan", BaseURL: "http://localhost:8081", Owner: "BPS_DUKCAPIL", Path: "penduduk", JoinKey: "NIK"},
 	{Name: "Pendidikan", BaseURL: "http://localhost:8082", Owner: "KEMENDIKBUD", Path: "pendidikan", JoinKey: "NIK"},
 	{Name: "Wilayah", BaseURL: "http://localhost:8083", Owner: "BPS", Path: "wilayah", JoinKey: "KODE"},
-	{Name: "Kesehatan", BaseURL: "http://localhost:8084", Owner: "BPJS_KETENAGAKERJAAN", Path: "kesehatan", JoinKey: "NIK"},
-	{Name: "Kesejahteraan", BaseURL: "http://localhost:8085", Owner: "KEMENSOS", Path: "kesejahteraan", JoinKey: "NoKK"},
-	{Name: "Hunian", BaseURL: "http://localhost:8086", Owner: "PKP", Path: "hunian", JoinKey: "NoKK"},
-	{Name: "Energi", BaseURL: "http://localhost:8087", Owner: "ESDM", Path: "energi", JoinKey: "NoKK"},
-	{Name: "Ketenagakerjaan", BaseURL: "http://localhost:8088", Owner: "KEMENSOS", Path: "ketenagakerjaan", JoinKey: "NIK"},
+	{Name: "Kesehatan", BaseURL: "http://localhost:8084", Owner: "KEMENKES", Path: "kesehatan", JoinKey: "NIK"},
+	{Name: "Ketenagakerjaan", BaseURL: "http://localhost:8085", Owner: "BPJS_TK", Path: "ketenagakerjaan", JoinKey: "NIK"},
+	{Name: "Kesejahteraan", BaseURL: "http://localhost:8086", Owner: "KEMENSOS", Path: "kesejahteraan", JoinKey: "NoKK"},
+	{Name: "Hunian", BaseURL: "http://localhost:8087", Owner: "PUPR", Path: "hunian", JoinKey: "NoKK"},
+	{Name: "Energi", BaseURL: "http://localhost:8088", Owner: "ESDM", Path: "energi", JoinKey: "NoKK"},
 }
 
-// 2. Mesin Stitching: Helper Fetch Data antar Domain (Error-Proof)
+// 2. Stitching Data
 func fetchFromDomain(url string, target interface{}) error {
-	client := &http.Client{Timeout: 3 * time.Second} // Timeout cepat agar tidak bottleneck
+	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
 		return err
@@ -50,7 +49,7 @@ func fetchFromDomain(url string, target interface{}) error {
 	return json.Unmarshal(body, target)
 }
 
-// 3. Mesin Dinamis: Filter Variabel (Field Selection)
+// 3. Mesin Dinamis: Filter Variabel
 func applyDynamicFields(data map[string]interface{}, fields string) map[string]interface{} {
 	if fields == "" {
 		return data
@@ -68,7 +67,7 @@ func applyDynamicFields(data map[string]interface{}, fields string) map[string]i
 
 func main() {
 	app := fiber.New(fiber.Config{
-		AppName: "Domain Core - Data Sosial Ekonomi v3.0 (Full Mesh)",
+		AppName: "Domain Core - Data Sosial Ekonomi",
 	})
 	app.Use(logger.New())
 
@@ -79,7 +78,7 @@ func main() {
 		fields := c.Query("fields")
 		var rawList []map[string]interface{}
 
-		// Ambil list dasar dari Kependudukan (Index 0)
+		// Ambil list dasar dari Kependudukan
 		urlPdk := fmt.Sprintf("%s/api/v1/domains/%s/datasets", meshRegistry[0].BaseURL, meshRegistry[0].Path)
 		if err := fetchFromDomain(urlPdk, &rawList); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil basis data kependudukan. Pastikan domain port 8081 menyala."})
@@ -88,12 +87,11 @@ func main() {
 		var stitchedList []map[string]interface{}
 
 		for _, person := range rawList {
-			// Ekstrak kunci dengan aman (Type Assertion ok-pattern)
 			nik, _ := person["nomor_induk_kependudukan"].(string)
 			nokk, _ := person["nomor_kartu_keluarga"].(string)
 			kodeWil, _ := person["kode_kelurahan_desa"].(string)
 
-			// Jahit dengan 7 domain lainnya secara otomatis
+			// Gabung dengan 7 domain lainnya
 			for i := 1; i < len(meshRegistry); i++ {
 				domain := meshRegistry[i]
 				var sub map[string]interface{}
@@ -110,11 +108,10 @@ func main() {
 					continue // Jika kunci kosong, lewati domain ini
 				}
 
-				// Fetch data. Jika error (domain mati/data kosong), abaikan agar sistem tidak crash
 				if err := fetchFromDomain(url, &sub); err == nil {
 					for k, v := range sub {
 						person[k] = v
-					} // Merge fields
+					}
 				}
 			}
 

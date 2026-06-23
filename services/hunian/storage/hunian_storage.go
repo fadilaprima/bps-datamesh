@@ -59,21 +59,28 @@ func (s *HunianStorage) SoftDelete(id string) error {
 	return s.DB.Model(&models.RekamHunian{}).Where("id = ?", id).Update("is_deleted", true).Error
 }
 
-func (s *HunianStorage) GetAuditSamples() ([]models.RekamHunian, error) {
-	var results []models.RekamHunian
-	query := `
-		SELECT k.* FROM rekam_hunians k
-		INNER JOIN (
-			SELECT nomor_kartu_keluarga, MAX(version) as max_ver
-			FROM rekam_hunians
-			GROUP BY nomor_kartu_keluarga
-		) grouped_k 
-		ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
-		AND k.version = grouped_k.max_ver
-		WHERE k.audit_status = 'PENDING'
-	`
-	err := s.DB.Raw(query).Scan(&results).Error
-	return results, err
+// GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
+func (s *HunianStorage) GetAuditSamples(limit int) ([]models.RekamHunian, error) {
+    var results []models.RekamHunian
+    
+    // Query dengan penambahan RANDOM() dan limit
+    query := `
+        SELECT k.* FROM rekam_hunians k
+        INNER JOIN (
+            SELECT nomor_kartu_keluarga, MAX(version) as max_ver
+            FROM rekam_hunians
+            GROUP BY nomor_kartu_keluarga
+        ) grouped_k 
+        ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
+        AND k.version = grouped_k.max_ver
+        WHERE k.audit_status = 'PENDING'
+        ORDER BY RANDOM()
+        LIMIT ?
+    `
+    
+    // Oper limit ke Raw query
+    err := s.DB.Raw(query, limit).Scan(&results).Error
+    return results, err
 }
 
 func (s *HunianStorage) UpdateBulkAuditDecision(nokkList []string, verdictText string, bonus float64) error {

@@ -53,21 +53,28 @@ func (s *KetenagakerjaanStorage) SoftDelete(id string) error {
 	return s.DB.Model(&models.RekamKetenagakerjaan{}).Where("id = ?", id).Update("is_deleted", true).Error
 }
 
-func (s *KetenagakerjaanStorage) GetAuditSamples() ([]models.RekamKetenagakerjaan, error) {
-	var results []models.RekamKetenagakerjaan
-	query := `
-		SELECT k.* FROM rekam_ketenagakerjaans k
-		INNER JOIN (
-			SELECT nomor_induk_kependudukan, MAX(version) as max_ver
-			FROM rekam_ketenagakerjaans
-			GROUP BY nomor_induk_kependudukan
-		) grouped_k 
-		ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan 
-		AND k.version = grouped_k.max_ver
-		WHERE k.audit_status = 'PENDING'
-	`
-	err := s.DB.Raw(query).Scan(&results).Error
-	return results, err
+// GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
+func (s *KetenagakerjaanStorage) GetAuditSamples(limit int) ([]models.RekamKetenagakerjaan, error) {
+    var results []models.RekamKetenagakerjaan
+    
+    // Query dengan penambahan RANDOM() dan limit
+    query := `
+        SELECT k.* FROM rekam_ketenagakerjaans k
+        INNER JOIN (
+            SELECT nomor_induk_kependudukan, MAX(version) as max_ver
+            FROM rekam_ketenagakerjaans
+            GROUP BY nomor_induk_kependudukan
+        ) grouped_k 
+        ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan 
+        AND k.version = grouped_k.max_ver
+        WHERE k.audit_status = 'PENDING'
+        ORDER BY RANDOM()
+        LIMIT ?
+    `
+    
+    // Oper limit ke Raw query
+    err := s.DB.Raw(query, limit).Scan(&results).Error
+    return results, err
 }
 
 func (s *KetenagakerjaanStorage) UpdateBulkAuditDecision(nikList []string, verdictText string, bonus float64) error {

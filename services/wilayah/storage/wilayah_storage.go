@@ -69,22 +69,25 @@ func (s *WilayahStorage) SoftDelete(id string) error {
 
 // 4. GOVERNANCE & AUDIT (QUALITY CONTROL)
 // GetAuditSamples mengambil data versi tertinggi yang berstatus PENDING
-func (s *WilayahStorage) GetAuditSamples() ([]models.MasterWilayah, error) {
-	var results []models.MasterWilayah
-	// Mengambil data pending yang merupakan versi paling mutakhir (tertinggi)
-	query := `
-		SELECT m.* FROM master_wilayah m
-		INNER JOIN (
-			SELECT kode_kelurahan_desa, MAX(version) as max_ver
-			FROM master_wilayah
-			GROUP BY kode_kelurahan_desa
-		) grouped_m 
-		ON m.kode_kelurahan_desa = grouped_m.kode_kelurahan_desa 
-		AND m.version = grouped_m.max_ver
-		WHERE m.audit_status = 'PENDING'
-	`
-	err := s.DB.Raw(query).Scan(&results).Error
-	return results, err
+func (s *WilayahStorage) GetAuditSamples(limit int) ([]models.MasterWilayah, error) {
+    var results []models.MasterWilayah
+    query := `
+        SELECT m.* FROM master_wilayah m
+        INNER JOIN (
+            SELECT kode_kelurahan_desa, MAX(version) as max_ver
+            FROM master_wilayah
+            GROUP BY kode_kelurahan_desa
+        ) grouped_m 
+        ON m.kode_kelurahan_desa = grouped_m.kode_kelurahan_desa 
+        AND m.version = grouped_m.max_ver
+        WHERE m.audit_status = 'PENDING'
+        ORDER BY RANDOM()
+        LIMIT ?
+    `
+    
+    // Oper limit ke Raw query
+    err := s.DB.Raw(query, limit).Scan(&results).Error
+    return results, err
 }
 
 // UpdateBulkAuditDecision menyimpan keputusan Approved/Rejected beserta Trust Score

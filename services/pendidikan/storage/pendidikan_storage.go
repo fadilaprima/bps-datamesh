@@ -67,29 +67,28 @@ func (s *PendidikanStorage) UpdateAuditStatus(id string, status string) error {
 	return s.DB.Model(&models.RiwayatPendidikan{}).Where("id = ?", id).Update("audit_status", status).Error
 }
 
-// GetSample mengambil data acak untuk keperluan audit lapangan
-func (s *PendidikanStorage) GetSample(limit int) ([]models.RiwayatPendidikan, error) {
-	var samples []models.RiwayatPendidikan
-	err := s.DB.Where("is_deleted = ?", false).Limit(limit).Order("RANDOM()").Find(&samples).Error
-	return samples, err
-}
-
-// GetAuditSamples mengambil record paling tinggi yang masih pending
-func (s *PendidikanStorage) GetAuditSamples() ([]models.RiwayatPendidikan, error) {
-	var results []models.RiwayatPendidikan
-	query := `
-		SELECT w.* FROM riwayat_pendidikans w
-		INNER JOIN (
-			SELECT nomor_induk_kependudukan, MAX(version) as max_ver
-			FROM riwayat_pendidikans
-			GROUP BY nomor_induk_kependudukan
-		) grouped_w 
-		ON w.nomor_induk_kependudukan = grouped_w.nomor_induk_kependudukan 
-		AND w.version = grouped_w.max_ver
-		WHERE w.audit_status = 'PENDING'
-	`
-	err := s.DB.Raw(query).Scan(&results).Error
-	return results, err
+// GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
+func (s *PendidikanStorage) GetAuditSamples(limit int) ([]models.RiwayatPendidikan, error) {
+    var results []models.RiwayatPendidikan
+    
+    // Query dengan penambahan RANDOM() dan limit
+    query := `
+        SELECT w.* FROM riwayat_pendidikans w
+        INNER JOIN (
+            SELECT nomor_induk_kependudukan, MAX(version) as max_ver
+            FROM riwayat_pendidikans
+            GROUP BY nomor_induk_kependudukan
+        ) grouped_w 
+        ON w.nomor_induk_kependudukan = grouped_w.nomor_induk_kependudukan 
+        AND w.version = grouped_w.max_ver
+        WHERE w.audit_status = 'PENDING'
+        ORDER BY RANDOM()
+        LIMIT ?
+    `
+    
+    // Oper limit ke Raw query
+    err := s.DB.Raw(query, limit).Scan(&results).Error
+    return results, err
 }
 
 // UpdateBulkAuditDecision eksekusi final 20 poin trust score secara masal

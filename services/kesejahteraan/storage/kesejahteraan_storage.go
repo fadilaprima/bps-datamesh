@@ -75,21 +75,28 @@ func (s *KesejahteraanStorage) GetSample(limit int) ([]models.RekamKesejahteraan
 	return samples, err
 }
 
-func (s *KesejahteraanStorage) GetAuditSamples() ([]models.RekamKesejahteraan, error) {
-	var results []models.RekamKesejahteraan
-	query := `
-		SELECT k.* FROM rekam_kesejahteraans k
-		INNER JOIN (
-			SELECT nomor_kartu_keluarga, MAX(version) as max_ver
-			FROM rekam_kesejahteraans
-			GROUP BY nomor_kartu_keluarga
-		) grouped_k 
-		ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
-		AND k.version = grouped_k.max_ver
-		WHERE k.audit_status = 'PENDING'
-	`
-	err := s.DB.Raw(query).Scan(&results).Error
-	return results, err
+// GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
+func (s *KesejahteraanStorage) GetAuditSamples(limit int) ([]models.RekamKesejahteraan, error) {
+    var results []models.RekamKesejahteraan
+    
+    // Query dengan penambahan RANDOM() dan limit
+    query := `
+        SELECT k.* FROM rekam_kesejahteraans k
+        INNER JOIN (
+            SELECT nomor_kartu_keluarga, MAX(version) as max_ver
+            FROM rekam_kesejahteraans
+            GROUP BY nomor_kartu_keluarga
+        ) grouped_k 
+        ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
+        AND k.version = grouped_k.max_ver
+        WHERE k.audit_status = 'PENDING'
+        ORDER BY RANDOM()
+        LIMIT ?
+    `
+    
+    // Oper limit ke Raw query
+    err := s.DB.Raw(query, limit).Scan(&results).Error
+    return results, err
 }
 
 func (s *KesejahteraanStorage) UpdateBulkAuditDecision(nokkList []string, verdictText string, bonus float64) error {

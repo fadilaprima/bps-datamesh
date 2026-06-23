@@ -79,7 +79,9 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 	if config, exists := app.SourceMap[sourceIDInt]; exists {
 		sourceName = config.Name
 		isWali = config.IsWali
-		if isWali { trustScore += 20.0 }
+		if isWali {
+			trustScore += 20.0
+		}
 	} else {
 		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (PLN), 3 (ESDM), 4 (LAINNYA)"})
 	}
@@ -102,20 +104,30 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 		eType := reflect.TypeOf(models.RekamEnergi{})
 
 		for i, rec := range records {
-			if i == 0 { continue }
+			if i == 0 {
+				continue
+			}
 			extraData := make(map[string]interface{})
 			p := models.RekamEnergi{ReferenceDate: refDate}
 			pValue := reflect.ValueOf(&p).Elem()
 
 			for idx, val := range rec {
-				if idx >= len(headers) { continue }
+				if idx >= len(headers) {
+					continue
+				}
 				key := strings.ToLower(headers[idx])
 				found := false
 
 				// Alias mapping cerdas
-				if key == "no_kk" || key == "nkk" { key = "nomor_kartu_keluarga" }
-				if key == "id_pelanggan" || key == "id_pln" { key = "id_pelanggan_pln" }
-				if key == "daya_listrik" { key = "daya_terpasang" }
+				if key == "no_kk" || key == "nkk" {
+					key = "nomor_kartu_keluarga"
+				}
+				if key == "id_pelanggan" || key == "id_pln" {
+					key = "id_pelanggan_pln"
+				}
+				if key == "daya_listrik" {
+					key = "daya_terpasang"
+				}
 
 				for fIdx := 0; fIdx < eType.NumField(); fIdx++ {
 					field := eType.Field(fIdx)
@@ -123,22 +135,31 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 					if jsonTag == key {
 						found = true
 						fieldVal := pValue.Field(fIdx)
-						if !fieldVal.CanSet() { continue }
+						if !fieldVal.CanSet() {
+							continue
+						}
 						switch fieldVal.Kind() {
-						case reflect.String: fieldVal.SetString(val)
+						case reflect.String:
+							fieldVal.SetString(val)
 						case reflect.Int, reflect.Int32, reflect.Int64:
 							var intVal int64
-							if val != "" { fmt.Sscanf(val, "%d", &intVal) }
+							if val != "" {
+								fmt.Sscanf(val, "%d", &intVal)
+							}
 							fieldVal.SetInt(intVal)
 						case reflect.Float32, reflect.Float64:
 							var floatVal float64
-							if val != "" { fmt.Sscanf(val, "%f", &floatVal) }
+							if val != "" {
+								fmt.Sscanf(val, "%f", &floatVal)
+							}
 							fieldVal.SetFloat(floatVal)
 						}
 						break
 					}
 				}
-				if !found && key != "" { extraData[key] = val }
+				if !found && key != "" {
+					extraData[key] = val
+				}
 			}
 			p.AdditionalInfo, _ = json.Marshal(extraData)
 			dataList = append(dataList, p)
@@ -173,7 +194,9 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 		dataList[i].IsWaliData = isWali
 		dataList[i].AuditStatus = "PENDING"
 		dataList[i].SchemaVersion = fmt.Sprintf("v%d", activeSchema.Version)
-		if dataList[i].TrustScore == 0 { dataList[i].TrustScore = trustScore }
+		if dataList[i].TrustScore == 0 {
+			dataList[i].TrustScore = trustScore
+		}
 
 		if ok, msg := h.Service.ValidateEnergiMetadata(dataList[i], activeSchema.Definition); !ok {
 			fail++
@@ -201,13 +224,17 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 func (h *EnergiHandler) GetValidationStatus(c *fiber.Ctx) error {
 	result, err := h.Service.Storage.GetLatestByNoKK(c.Params("nokk"))
 	status := "PENDING"
-	if err == nil && result != nil { status = result.AuditStatus }
+	if err == nil && result != nil {
+		status = result.AuditStatus
+	}
 	return c.JSON(fiber.Map{"nokk": c.Params("nokk"), "status": status, "schema": "DTSEN-ENERGI-ACTIVE"})
 }
 
 func (h *EnergiHandler) GetScoring(c *fiber.Ctx) error {
 	result, err := h.Service.Storage.GetLatestByNoKK(c.Params("nokk"))
-	if err != nil || result == nil { return c.Status(404).JSON(fiber.Map{"error": "Data energi tidak ditemukan"}) }
+	if err != nil || result == nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Data energi tidak ditemukan"})
+	}
 	return c.JSON(fiber.Map{
 		"no_kk": result.NoKK, "trust_score": result.TrustScore,
 		"is_walidata": result.IsWaliData, "audit_status": result.AuditStatus,
@@ -218,45 +245,74 @@ func (h *EnergiHandler) GetScoring(c *fiber.Ctx) error {
 func (h *EnergiHandler) GetProgress(c *fiber.Ctx) error {
 	count, err := h.Service.Storage.CountByNoKK(c.Params("nokk"))
 	status := "NOT_FOUND"
-	if err == nil && count > 0 { status = "COMPLETED_IN_MESH" }
+	if err == nil && count > 0 {
+		status = "COMPLETED_IN_MESH"
+	}
 	return c.JSON(fiber.Map{"nokk": c.Params("nokk"), "status": status, "progress": "100%"})
 }
 
 func (h *EnergiHandler) GetAllDatasets(c *fiber.Ctx) error {
 	fields := c.Query("fields")
 	var fieldList []string
-	if fields != "" { fieldList = strings.Split(fields, ",") }
+	if fields != "" {
+		fieldList = strings.Split(fields, ",")
+	}
 	results, err := h.Service.Storage.GetFetchWithFields(fieldList)
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data"}) }
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data"})
+	}
 	return c.JSON(results)
 }
 
 func (h *EnergiHandler) GetDatasetDetail(c *fiber.Ctx) error {
 	fields := c.Query("fields")
 	var fieldList []string
-	if fields != "" { fieldList = strings.Split(fields, ",") }
+	if fields != "" {
+		fieldList = strings.Split(fields, ",")
+	}
 	result, err := h.Service.Storage.GetDetailWithFields(c.Params("nokk"), fieldList)
-	if err != nil { return c.Status(404).JSON(fiber.Map{"error": "Nomor KK tidak ditemukan"}) }
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Nomor KK tidak ditemukan"})
+	}
 	return c.JSON(result)
 }
 
 func (h *EnergiHandler) UpdateDataset(c *fiber.Ctx) error {
 	var payload models.RekamEnergi
-	if err := c.BodyParser(&payload); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"}) }
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
+	}
 	version, err := h.Service.ProcessManualUpdate(c.Params("nokk"), payload)
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
 	return c.JSON(fiber.Map{"message": "Versi baru energi dibuat", "version": version})
 }
 
 func (h *EnergiHandler) SoftDeleteDataset(c *fiber.Ctx) error {
-	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) }
+	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"})
+	}
 	return c.JSON(fiber.Map{"message": "Data energi dinonaktifkan"})
 }
 
 func (h *EnergiHandler) GetAuditSamples(c *fiber.Ctx) error {
-	results, err := h.Service.Storage.GetAuditSamples()
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"}) }
-	if len(results) == 0 { return c.JSON(fiber.Map{"message": "Tidak ada data terbaru yang perlu diaudit."}) }
+	// 1. Ambil limit dari query param, default ke 10 jika tidak diisi
+	limit, err := strconv.Atoi(c.Query("limit", "10"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"})
+	}
+
+	// 2. Oper 'limit' ke Service
+	results, err := h.Service.Storage.GetAuditSamples(limit)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"})
+	}
+
+	if len(results) == 0 {
+		return c.JSON(fiber.Map{"message": "Tidak ada data kependudukan terbaru yang perlu diaudit."})
+	}
+
 	return c.JSON(results)
 }
 
@@ -265,10 +321,16 @@ func (h *EnergiHandler) SubmitAuditDecision(c *fiber.Ctx) error {
 		NoKK    []string `json:"nomor_kartu_keluarga"`
 		Verdict int      `json:"verdict"`
 	}
-	if err := c.BodyParser(&input); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"}) }
-	if len(input.NoKK) == 0 { return c.Status(400).JSON(fiber.Map{"error": "Daftar NoKK wajib diisi"}) }
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"})
+	}
+	if len(input.NoKK) == 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "Daftar NoKK wajib diisi"})
+	}
 
 	verdictText, err := h.Service.ProcessAuditDecision(input.NoKK, input.Verdict)
-	if err != nil { return c.Status(400).JSON(fiber.Map{"error": err.Error()}) }
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
 	return c.JSON(fiber.Map{"message": fmt.Sprintf("Audit energi selesai. %d KK diubah menjadi %s", len(input.NoKK), verdictText)})
 }
