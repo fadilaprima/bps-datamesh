@@ -8,7 +8,7 @@ type Penduduk struct {
 	// ID adalah Primary Key unik untuk tiap baris (v1, v2 beda ID)
 	// NIK adalah Natural Key (Index) untuk melacak sejarah orang yang sama
 	ID             uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	NIK            string    `gorm:"index;column:nomor_induk_kependudukan" json:"nomor_induk_kependudukan" parquet:"name=nomor_induk_kependudukan, type=UTF8"`
+	NIK            string    `gorm:"column:nomor_induk_kependudukan;index:idx_nik_version" json:"nomor_induk_kependudukan" parquet:"name=nomor_induk_kependudukan, type=UTF8"`
 	NoKK           string    `gorm:"column:nomor_kartu_keluarga" json:"nomor_kartu_keluarga" parquet:"name=nomor_kartu_keluarga, type=UTF8"`
 	Nama           string    `gorm:"column:nama" json:"nama" parquet:"name=nama, type=UTF8"`
 	NamaAnggota    string    `gorm:"column:nama_anggota_keluarga" json:"nama_anggota_keluarga" parquet:"name=nama_anggota_keluarga, type=UTF8"`
@@ -38,7 +38,7 @@ type Penduduk struct {
 	KodeDesaKTP    string    `gorm:"column:kode_kelurahan_desa_ktp" json:"kode_kelurahan_desa_ktp" parquet:"name=kode_kelurahan_desa_ktp, type=UTF8"`
 
 	// 5. METADATA INGESTI & GOVERNANCE (Lifecycle)
-	Version        int       `gorm:"column:version" json:"version"`
+	Version        int       `gorm:"column:version;index:idx_nik_version" json:"version"`
 	SourceID       string    `gorm:"column:source_id" json:"source_id" parquet:"name=source_id, type=UTF8"`
 	IsWaliData     bool      `gorm:"column:is_wali_data" json:"is_wali_data" parquet:"name=is_wali_data, type=BOOLEAN"`
 	TrustScore     float64   `gorm:"column:trust_score" json:"trust_score" parquet:"name=trust_score, type=DOUBLE"`
@@ -46,8 +46,8 @@ type Penduduk struct {
 	AdditionalInfo datatypes.JSON `gorm:"column:additional_info" json:"additional_info"`
 	
 	// Field Tambahan untuk 13 Endpoints (Lifecycle & Audit)
-	IsDeleted      bool      `gorm:"column:is_deleted;default:false" json:"is_deleted"`
-	AuditStatus    string    `gorm:"column:audit_status;default:'PENDING'" json:"audit_status"` // PENDING, APPROVED, REJECTED
+	IsDeleted      bool      `gorm:"column:is_deleted;default:false;index" json:"is_deleted"`
+	AuditStatus    string    `gorm:"column:audit_status;default:'PENDING';index" json:"audit_status"`
 	SchemaVersion  string    `gorm:"column:schema_version" json:"schema_version"`
 	UpdatedAt      time.Time `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"`
 }
