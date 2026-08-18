@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
 	"strings"
 	"time"
@@ -33,6 +35,105 @@ var AuditMap = map[int]string{
 	2: "INVALID",
 }
 
+// ==========================================
+// 1. FUNGSI HELPER MENGHITUNG UMUR
+// ==========================================
+func hitungUmur(tanggalLahir string) int {
+	if t, err := time.Parse("2006-01-02", tanggalLahir); err == nil {
+		return int(time.Since(t).Hours() / 24 / 365.25)
+	}
+	return -1 // Kembalikan -1 jika format tanggal salah atau kosong
+}
+
+// ==========================================
+// 2. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// ==========================================
+func (s *PendudukService) ValidateInternalKependudukan(p models.Penduduk) error {
+	umur := hitungUmur(p.TglLahir)
+
+	// Rule: Umur < 12 Tahun dan status_kawin = Kawin/Cerai
+	if umur >= 0 && umur < 12 && (p.StatusKawin == "Kawin" || p.StatusKawin == "Cerai Hidup" || p.StatusKawin == "Cerai Mati") {
+		return fmt.Errorf("gagal validasi internal: umur di bawah 12 tahun tidak boleh berstatus Kawin/Cerai")
+	}
+
+	// Rule: Umur < 10 Tahun dan status_hubungan_keluarga = Kepala Keluarga
+	if umur >= 0 && umur < 10 && p.StatusHubungan == "Kepala Keluarga" {
+		return fmt.Errorf("gagal validasi internal: umur di bawah 10 tahun tidak boleh berstatus Kepala Keluarga")
+	}
+
+	// Rule: Status hubungan keluarga (Suami/Istri) harus sesuai Jenis Kelamin
+	// Sesuai metadata, asumsikan kode jenis kelamin: 1 = Laki-laki, 2 = Perempuan
+	if (p.StatusHubungan == "Suami" && p.JenisKelamin == "2") || (p.StatusHubungan == "Istri" && p.JenisKelamin == "1") {
+		return fmt.Errorf("gagal validasi internal: status hubungan keluarga tidak logis dengan jenis kelamin")
+	}
+
+	return nil
+}
+
+// ==========================================
+// 3. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// ==========================================
+func (s *PendudukService) ValidateCrossDomainAPI(p models.Penduduk) error {
+	umur := hitungUmur(p.TglLahir)
+	
+	// Agar request tidak menggantung selamanya jika service lain mati
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// --- A. Cek ke Domain Pendidikan (Port 8082) ---
+	if umur >= 0 && umur < 18 {
+		resp, err := client.Get(fmt.Sprintf("http://localhost:8082/api/v1/domains/pendidikan/datasets/%s", p.NIK))
+		if err == nil && resp.StatusCode == 200 {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			
+			// Ekstrak respons JSON Pendidikan
+			var result []map[string]interface{}
+			if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+				dataPendidikan := result[0]
+				partisipasi := fmt.Sprintf("%v", dataPendidikan["partisipasi_sekolah"])
+				jenjang := fmt.Sprintf("%v", dataPendidikan["jenjang_tertinggi_yang_diduduki"])
+				ijazah := fmt.Sprintf("%v", dataPendidikan["ijazah_tertinggi_yang_dimiliki"])
+
+				// Rule: Umur < 5 Tahun dan (partisipasi = Masih Sekolah ATAU jenjang >= SD)
+				if umur < 5 && (partisipasi == "Masih Sekolah" || (jenjang != "TK/Belum sekolah" && jenjang != "" && jenjang != "null")) {
+					return fmt.Errorf("gagal validasi lintas domain (pendidikan): umur di bawah 5 tahun tidak wajar untuk partisipasi atau jenjang tersebut")
+				}
+
+				// Rule: Umur < 18 Tahun dan ijazah >= S1
+				if umur < 18 && (strings.Contains(ijazah, "S1") || strings.Contains(ijazah, "S2") || strings.Contains(ijazah, "S3")) {
+					return fmt.Errorf("gagal validasi lintas domain (pendidikan): umur di bawah 18 tahun tidak wajar memiliki ijazah setingkat S1 ke atas")
+				}
+			}
+		}
+	}
+
+	// --- B. Cek ke Domain Ketenagakerjaan (Port 8085) ---
+	if umur >= 0 && umur < 10 {
+		resp, err := client.Get(fmt.Sprintf("http://localhost:8085/api/v1/domains/ketenagakerjaan/datasets/%s", p.NIK))
+		if err == nil && resp.StatusCode == 200 {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+
+			var result []map[string]interface{}
+			if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+				dataKerja := result[0]
+				statusBekerja := fmt.Sprintf("%v", dataKerja["status_bekerja"])
+				kepemilikanUsaha := fmt.Sprintf("%v", dataKerja["kepemilikan_usaha"])
+
+				// Rule: Umur < 10 Tahun dan (status_bekerja = Ya ATAU kepemilikan_usaha = Ya)
+				if statusBekerja == "Ya" || kepemilikanUsaha == "Ya" {
+					return fmt.Errorf("gagal validasi lintas domain (ketenagakerjaan): umur di bawah 10 tahun tidak boleh berstatus Bekerja atau Memiliki Usaha")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// ==========================================
+// 4. KODE BAWAAN METADATA VALIDATION
+// ==========================================
 // ValidatePendudukMetadata melakukan validasi isi data kependudukan secara dinamis
 func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
@@ -43,7 +144,7 @@ func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition
 	rules, ok := schemaMap["definition"].(map[string]interface{})
 	if !ok { return true, "" }
 
-	// 2. LOGIKA VALIDASI HIRARKI & KATEGORIKAL (DENGAN REFLECT ENGINE)
+	// LOGIKA VALIDASI HIRARKI & KATEGORIKAL (DENGAN REFLECT ENGINE)
 	val := reflect.ValueOf(p)
 	typ := reflect.TypeOf(p)
 	fixedFields := make(map[string]bool)
@@ -98,7 +199,7 @@ func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition
 		}
 	}
 
-	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB 
+	// VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB 
 	var extra map[string]interface{}
 	json.Unmarshal(p.AdditionalInfo, &extra)
 
@@ -123,8 +224,25 @@ func (s *PendudukService) ValidatePendudukMetadata(p models.Penduduk, definition
 	return true, ""
 }
 
+// ==========================================
+// 5. INGESTION PIPELINE (SCD Type 2)
+// ==========================================
 // ProcessIngestion mengelola alur SCD Type 2 (Versioning) untuk Domain Penduduk
 func (s *PendudukService) ProcessIngestion(p models.Penduduk) (string, error) {
+	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
+	
+	// Tahap 1: Validasi Logika Internal
+	if err := s.ValidateInternalKependudukan(p); err != nil {
+		return "Error Validation", err
+	}
+
+	// Tahap 2: Validasi Logika Lintas Domain (API Call)
+	if err := s.ValidateCrossDomainAPI(p); err != nil {
+		return "Error Cross-Validation", err
+	}
+
+	// --- AKHIR BLOK VALIDASI ---
+
 	last, err := s.Storage.GetLatestByNIK(p.NIK)
 
 	// Skenario A: Data Baru
@@ -150,6 +268,9 @@ func (s *PendudukService) ProcessIngestion(p models.Penduduk) (string, error) {
 	return "Abaikan", fmt.Errorf("data yang dikirim lebih usang")
 }
 
+// ==========================================
+// 6. UPDATE & AUDIT LOGIC
+// ==========================================
 // Logika Bisnis untuk Manual Update dari PUT Dataset
 func (s *PendudukService) ProcessManualUpdate(nik string, newData models.Penduduk) (int, error) {
 	oldData, err := s.Storage.GetLatestByNIK(nik)

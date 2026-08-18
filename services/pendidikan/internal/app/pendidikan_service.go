@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -36,6 +38,119 @@ var AuditMap = map[int]string{
 	2: "INVALID",
 }
 
+// ==========================================
+// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// ==========================================
+func (s *PendidikanService) ValidateInternalPendidikan(p models.RiwayatPendidikan) error {
+	// Konversi p.Kelas dari string ke int untuk pengecekan batas kelas
+	kelasInt, _ := strconv.Atoi(p.Kelas)
+
+	// Mapping hierarki jenjang untuk mempermudah logika "Lebih dari / Kurang dari"
+	jenjangRank := map[string]int{
+		"TK/Belum sekolah": 0,
+		"SD":               1,
+		"SMP":              2,
+		"SMA":              3,
+		"D1":               4,
+		"D2":               5,
+		"D3":               6,
+		"D4":               7,
+		"S1":               7,
+		"S2":               8,
+		"S3":               9,
+	}
+
+	jRank, jExists := jenjangRank[p.Jenjang]
+
+	if jExists {
+		// Rule 1: Ijazah vs Jenjang
+		if p.Ijazah == "S1" && jRank <= jenjangRank["SMA"] {
+			return fmt.Errorf("gagal validasi internal: memiliki ijazah S1 tetapi jenjang tertinggi <= SMA")
+		}
+		if p.Ijazah == "SMA" && jRank <= jenjangRank["SMP"] {
+			return fmt.Errorf("gagal validasi internal: memiliki ijazah SMA tetapi jenjang tertinggi <= SMP")
+		}
+		if p.Ijazah == "SMP" && jRank <= jenjangRank["SD"] {
+			return fmt.Errorf("gagal validasi internal: memiliki ijazah SMP tetapi jenjang tertinggi <= SD")
+		}
+		if p.Ijazah == "SD" && jRank <= jenjangRank["TK/Belum sekolah"] {
+			return fmt.Errorf("gagal validasi internal: memiliki ijazah SD tetapi jenjang tertinggi <= TK/Belum sekolah")
+		}
+
+		// Rule 2: Jenjang vs Kelas Tertinggi
+		if p.Jenjang == "SD" && kelasInt > 6 {
+			return fmt.Errorf("gagal validasi internal: jenjang SD tetapi kelas yang diduduki > 6")
+		}
+		if (p.Jenjang == "SMP" || p.Jenjang == "SMA" || strings.HasPrefix(p.Jenjang, "D1") || strings.HasPrefix(p.Jenjang, "D2") || strings.HasPrefix(p.Jenjang, "D3")) && kelasInt > 3 {
+			return fmt.Errorf("gagal validasi internal: jenjang %s tetapi kelas yang diduduki > 3", p.Jenjang)
+		}
+		if (p.Jenjang == "D4" || p.Jenjang == "S1" || p.Jenjang == "S3") && kelasInt > 4 {
+			return fmt.Errorf("gagal validasi internal: jenjang %s tetapi kelas yang diduduki > 4", p.Jenjang)
+		}
+		if p.Jenjang == "S2" && kelasInt > 2 {
+			return fmt.Errorf("gagal validasi internal: jenjang S2 tetapi kelas yang diduduki > 2")
+		}
+	}
+
+	// Rule 3: Partisipasi Sekolah vs Kelas
+	if p.Partisipasi == "Tidak/Belum Pernah Sekolah" && kelasInt > 0 {
+		return fmt.Errorf("gagal validasi internal: status tidak/belum pernah sekolah tetapi kelas tertinggi > 0")
+	}
+
+	return nil
+}
+
+// ==========================================
+// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// ==========================================
+func (s *PendidikanService) ValidateCrossDomainAPI(p models.RiwayatPendidikan) error {
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// Cek ke Domain Kependudukan (Port 8081) untuk mendapatkan Umur
+	resp, err := client.Get(fmt.Sprintf("http://localhost:8081/api/v1/domains/penduduk/datasets/%s", p.NIK))
+	if err == nil && resp.StatusCode == 200 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		var result []map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+			dataPenduduk := result[0]
+			tglLahir := fmt.Sprintf("%v", dataPenduduk["tanggal_lahir"])
+
+			umur := -1
+			if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
+				umur = int(time.Since(t).Hours() / 24 / 365.25)
+			}
+
+			if umur >= 0 {
+				// Cek kelayakan Jenjang SD ke atas
+				jenjangRank := map[string]int{"TK/Belum sekolah": 0, "SD": 1, "SMP": 2, "SMA": 3}
+				isJenjangSDKeAtas := false
+				if rank, exists := jenjangRank[p.Jenjang]; exists && rank >= 1 {
+					isJenjangSDKeAtas = true
+				} else if p.Jenjang != "TK/Belum sekolah" && p.Jenjang != "" {
+					isJenjangSDKeAtas = true
+				}
+
+				// Rule: Umur < 5 Tahun dan (partisipasi = Masih Sekolah ATAU jenjang >= SD)
+				if umur < 5 && (p.Partisipasi == "Masih Sekolah" || isJenjangSDKeAtas) {
+					return fmt.Errorf("gagal validasi lintas domain (kependudukan): umur di bawah 5 tahun tidak wajar untuk partisipasi Masih Sekolah atau menduduki jenjang SD ke atas")
+				}
+
+				// Rule: Umur < 18 Tahun dan ijazah >= S1
+				if umur < 18 && (strings.Contains(p.Ijazah, "S1") || strings.Contains(p.Ijazah, "S2") || strings.Contains(p.Ijazah, "S3")) {
+					return fmt.Errorf("gagal validasi lintas domain (kependudukan): umur di bawah 18 tahun tidak wajar memiliki ijazah setingkat S1 ke atas")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// ==========================================
+// 3. KODE BAWAAN METADATA VALIDATION
+// ==========================================
 // ValidatePendidikanMetadata melakukan validasi isi data berdasarkan aturan di database (Dinamis)
 func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidikan, definition datatypes.JSON) (bool, string) {
 	// 1. Parsing Aturan dari Skema Aktif
@@ -58,18 +173,16 @@ func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidika
 		}
 	}
 
-	// 3. VALIDASI JENJANG (Dinamis sesuai angka 'max' di JSON)
+	// 3. VALIDASI JENJANG (Pengecekan Panjang Karakter sesuai Varchar)
 	if r, ok := rules["jenjang"].(map[string]interface{}); ok {
-		if maxVal, ok := r["max"].(float64); ok {
-			val, _ := strconv.Atoi(p.Jenjang)
-			if val > int(maxVal) {
-				return false, fmt.Sprintf("Kode jenjang pendidikan tidak boleh lebih dari %d", int(maxVal))
+		if lengthVal, ok := r["length"].(float64); ok {
+			if p.Jenjang != "" && len(p.Jenjang) > int(lengthVal) {
+				return false, fmt.Sprintf("Jenjang pendidikan melebihi batas panjang karakter (%d digit)", int(lengthVal))
 			}
 		}
 	}
 
 	// 4. VALIDASI ATRIBUT TAMBAHAN DI KANTONG AJAIB (AdditionalInfo) DENGAN REFLECT
-	// Ambil daftar tag JSON dari struct fisik
 	typ := reflect.TypeOf(models.RiwayatPendidikan{})
 	fixedFields := make(map[string]bool)
 	for i := 0; i < typ.NumField(); i++ {
@@ -80,7 +193,6 @@ func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidika
 		}
 	}
 
-	// Kita cek apakah ada atribut di AdditionalInfo yang diwajibkan oleh skema
 	var extra map[string]interface{}
 	json.Unmarshal(p.AdditionalInfo, &extra)
 
@@ -88,9 +200,8 @@ func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidika
 		r, ok := rule.(map[string]interface{})
 		if !ok { continue }
 
-		// Jika di skema bilang field ini "required", tapi di struct utama gak ada (berarti di extra)
 		if r["required"] == true {
-			if !fixedFields[field] { // Cek dinamis, menggantikan isFixedColumn manual
+			if !fixedFields[field] {
 				if val, exists := extra[field]; !exists || fmt.Sprintf("%v", val) == "" {
 					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi sesuai skema", field)
 				}
@@ -101,8 +212,25 @@ func (s *PendidikanService) ValidatePendidikanMetadata(p models.RiwayatPendidika
 	return true, ""
 }
 
+// ==========================================
+// 4. INGESTION PIPELINE (SCD Type 2)
+// ==========================================
 // ProcessIngestion mengelola logika SCD Type 2 (Versioning)
 func (s *PendidikanService) ProcessIngestion(p models.RiwayatPendidikan) (string, error) {
+	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
+	
+	// Tahap 1: Validasi Logika Internal
+	if err := s.ValidateInternalPendidikan(p); err != nil {
+		return "Error Validation", err
+	}
+
+	// Tahap 2: Validasi Logika Lintas Domain (API Call ke Kependudukan)
+	if err := s.ValidateCrossDomainAPI(p); err != nil {
+		return "Error Cross-Validation", err
+	}
+
+	// --- AKHIR BLOK VALIDASI ---
+
 	// 1. Cari data terakhir di Mesh untuk NIK ini
 	last, err := s.Storage.GetLatestByNIK(p.NIK)
 
@@ -117,15 +245,13 @@ func (s *PendidikanService) ProcessIngestion(p models.RiwayatPendidikan) (string
 	}
 
 	// LOGIKA (SCD Type 2)
-	// Data baru diterima jika: Tanggal lebih baru ATAU (Tanggal sama tapi pengirim adalah Walidata)
 	isNewer := p.ReferenceDate.After(last.ReferenceDate)
 	isHigherAuthority := p.ReferenceDate.Equal(last.ReferenceDate) && p.IsWaliData && !last.IsWaliData
 
 	if isNewer || isHigherAuthority {
-		// Buat versi baru
-		p.ID = 0 // Reset ID agar auto-increment di DB
+		p.ID = 0
 		p.Version = last.Version + 1
-		p.AuditStatus = "PENDING" // Reset audit untuk pemeriksaan data baru
+		p.AuditStatus = "PENDING" 
 		
 		if errCreate := s.Storage.Create(&p); errCreate != nil {
 			return "Error", errCreate
@@ -136,6 +262,9 @@ func (s *PendidikanService) ProcessIngestion(p models.RiwayatPendidikan) (string
 	return "Abaikan", fmt.Errorf("data lebih lama dibandingkan data di database")
 }
 
+// ==========================================
+// 5. UPDATE & AUDIT LOGIC
+// ==========================================
 // Logika Bisnis untuk Manual Update dari PUT Dataset
 func (s *PendidikanService) ProcessManualUpdate(nik string, newData models.RiwayatPendidikan) (int, error) {
 	oldData, err := s.Storage.GetLatestByNIK(nik)
@@ -143,13 +272,11 @@ func (s *PendidikanService) ProcessManualUpdate(nik string, newData models.Riway
 		return 0, fmt.Errorf("data asli tidak ditemukan")
 	}
 
-	// LOGIKA RESET: Jika data berubah, harus audit ulang (Score -20)
 	newData.ID = 0
 	newData.Version = oldData.Version + 1
 	newData.AuditStatus = "PENDING"
 	newData.UpdatedAt = time.Now()
 
-	// Skor kembali ke base (Sistem 60 + Sumber 20/0)
 	if newData.IsWaliData {
 		newData.TrustScore = 80.0
 	} else {
