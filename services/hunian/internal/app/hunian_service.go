@@ -3,7 +3,10 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,7 +37,72 @@ var AuditMap = map[int]string{
 	2: "INVALID",
 }
 
-// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION DENGAN REFLECT)
+// ==========================================
+// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// ==========================================
+func (s *HunianService) ValidateInternalHunian(k models.RekamHunian) error {
+	// Rule: Luas lantai maksimum sesuai standar DTSEN adalah 999 m2
+	if k.LuasLantai < 0 || k.LuasLantai > 999 {
+		return fmt.Errorf("gagal validasi internal: luas lantai tidak valid (harus 0 s.d. 999 m2)")
+	}
+
+	// Rule: FasilitasBAB "Tidak Ada" tetapi jenis kloset Leher Angsa atau pembuangan tinja Tangki Septik
+	if k.FasilitasBAB == "Tidak Ada" && (k.JenisKloset == "Leher Angsa" || k.PembuanganTinja == "Tangki Septik") {
+		return fmt.Errorf("gagal validasi internal: fasilitas BAB tidak ada tetapi jenis kloset atau pembuangan tinja menggunakan standar layak")
+	}
+
+	return nil
+}
+
+// ==========================================
+// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// ==========================================
+func (s *HunianService) ValidateCrossDomainAPI(k models.RekamHunian) error {
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// Cek ke Domain Energi (Port 8088) berdasarkan NoKK
+	respEnergi, err := client.Get(fmt.Sprintf("http://localhost:8088/api/v1/domains/energi/datasets/%s", k.NoKK))
+	if err == nil && respEnergi.StatusCode == 200 {
+		defer respEnergi.Body.Close()
+		body, _ := io.ReadAll(respEnergi.Body)
+
+		var result []map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+			dataEnergi := result[0]
+			dayaTerpasang, _ := strconv.Atoi(fmt.Sprintf("%v", dataEnergi["daya_terpasang"]))
+
+			// Rule: SumberPenerangan = Bukan Listrik dan daya_terpasang > 0
+			if k.SumberPenerangan == "Bukan Listrik" && dayaTerpasang > 0 {
+				return fmt.Errorf("gagal validasi lintas domain (energi): sumber penerangan bukan listrik tetapi terdapat daya terpasang > 0")
+			}
+		}
+	}
+
+	// Cek ke Domain Kesejahteraan (Port 8086) berdasarkan NoKK
+	respKes, err := client.Get(fmt.Sprintf("http://localhost:8086/api/v1/domains/kesejahteraan/datasets/%s", k.NoKK))
+	if err == nil && respKes.StatusCode == 200 {
+		defer respKes.Body.Close()
+		body, _ := io.ReadAll(respKes.Body)
+
+		var result []map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+			dataKes := result[0]
+			asetAc := fmt.Sprintf("%v", dataKes["aset_bergerak_ac"])
+			asetKulkas := fmt.Sprintf("%v", dataKes["aset_bergerak_lemari_es"])
+
+			// Rule: SumberPenerangan = Bukan Listrik dan (aset_bergerak_ac = Ya ATAU aset_bergerak_lemari_es = Ya)
+			if k.SumberPenerangan == "Bukan Listrik" && (asetAc == "Ya" || asetAc == "1" || asetKulkas == "Ya" || asetKulkas == "1") {
+				return fmt.Errorf("gagal validasi lintas domain (kesejahteraan): sumber penerangan utama bukan listrik tetapi memiliki aset AC atau Lemari Es")
+			}
+		}
+	}
+
+	return nil
+}
+
+// ==========================================
+// 3. METADATA VALIDATOR (DYNAMIC SCHEMA)
+// ==========================================
 func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
 	if err := json.Unmarshal(definition, &schemaMap); err != nil {
@@ -80,7 +148,7 @@ func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition 
 		}
 	}
 
-	// 3. VALIDASI ATRIBUT TAMBAHAN (AdditionalInfo)
+	// VALIDASI ATRIBUT TAMBAHAN (AdditionalInfo)
 	var extra map[string]interface{}
 	json.Unmarshal(k.AdditionalInfo, &extra)
 
@@ -100,8 +168,20 @@ func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition 
 	return true, ""
 }
 
-// 3. CONFLICT RESOLUTION & SCD TYPE 2
+// ==========================================
+// 4. INGESTION PIPELINE (SCD TYPE 2)
+// ==========================================
 func (s *HunianService) ProcessIngestion(k models.RekamHunian) (string, error) {
+	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
+	if err := s.ValidateInternalHunian(k); err != nil {
+		return "Error Validation", err
+	}
+
+	if err := s.ValidateCrossDomainAPI(k); err != nil {
+		return "Error Cross-Validation", err
+	}
+	// --- AKHIR BLOK VALIDASI ---
+
 	last, err := s.Storage.GetLatestByNoKK(k.NoKK)
 
 	if err != nil {
@@ -126,6 +206,9 @@ func (s *HunianService) ProcessIngestion(k models.RekamHunian) (string, error) {
 	return "Abaikan", fmt.Errorf("data hunian yang dikirim usang")
 }
 
+// ==========================================
+// 5. UPDATE & AUDIT LOGIC
+// ==========================================
 func (s *HunianService) ProcessManualUpdate(nokk string, newData models.RekamHunian) (int, error) {
 	oldData, err := s.Storage.GetLatestByNoKK(nokk)
 	if err != nil || oldData == nil {

@@ -3,7 +3,10 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +36,75 @@ var AuditMap = map[int]string{
 	2: "INVALID",
 }
 
+// ==========================================
+// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// ==========================================
+func (s *KetenagakerjaanService) ValidateInternalKetenagakerjaan(k models.RekamKetenagakerjaan) error {
+	// Konversi tipe data numerik jika diperlukan dari struct
+	jumlahUsaha, _ := strconv.Atoi(fmt.Sprintf("%v", k.JumlahUsaha))
+	pekerjaDibayar, _ := strconv.Atoi(fmt.Sprintf("%v", k.JumlahPekerjaDibayar))
+	omzet, _ := strconv.ParseFloat(fmt.Sprintf("%v", k.OmzetUsahaUtama), 64)
+
+	// Rule: Status bekerja "Tidak" tetapi lapangan usaha utama terisi valid
+	if k.StatusBekerja == "Tidak" && strings.TrimSpace(k.LapanganUsahaPekerjaanUtama) != "" && k.LapanganUsahaPekerjaanUtama != "0" {
+		return fmt.Errorf("gagal validasi internal: status bekerja 'Tidak' tetapi lapangan usaha utama terisi")
+	}
+
+	// Rule: Kepemilikan usaha "Tidak" tetapi jumlah usaha > 0 atau omzet > 0
+	if k.KepemilikanUsaha == "Tidak" && (jumlahUsaha > 0 || omzet > 0) {
+		return fmt.Errorf("gagal validasi internal: kepemilikan usaha 'Tidak' tetapi jumlah usaha atau omzet > 0")
+	}
+
+	// Rule: Omzet < Rp 500.000 tetapi jumlah pekerja yang dibayar > 10 orang
+	if omzet > 0 && omzet < 500000 && pekerjaDibayar > 10 {
+		return fmt.Errorf("gagal validasi internal: omzet di bawah Rp 500.000 tetapi mempekerjakan lebih dari 10 orang")
+	}
+
+	// Rule: Status dalam pekerjaan utama = "Berusaha dibantu buruh dibayar", tetapi jumlah pekerja yang dibayar = 0
+	if k.StatusDalamPekerjaanUtama == "Berusaha dibantu buruh dibayar" && pekerjaDibayar == 0 {
+		return fmt.Errorf("gagal validasi internal: status berusaha dibantu buruh dibayar, tetapi jumlah pekerja yang dibayar 0")
+	}
+
+	// Rule: Status dalam pekerjaan utama = "Pekerja keluarga/tak dibayar", tetapi kepemilikan usaha = "Ya"
+	if k.StatusDalamPekerjaanUtama == "Pekerja keluarga/tak dibayar" && k.KepemilikanUsaha == "Ya" {
+		return fmt.Errorf("gagal validasi internal: pekerja tak dibayar tidak boleh berstatus memiliki usaha sendiri")
+	}
+
+	return nil
+}
+
+// ==========================================
+// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// ==========================================
+func (s *KetenagakerjaanService) ValidateCrossDomainAPI(k models.RekamKetenagakerjaan) error {
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// Cek ke Domain Kependudukan (Port 8081) untuk mendapatkan Tanggal Lahir / Umur
+	resp, err := client.Get(fmt.Sprintf("http://localhost:8081/api/v1/domains/penduduk/datasets/%s", k.NIK))
+	if err == nil && resp.StatusCode == 200 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		var result []map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+			dataPenduduk := result[0]
+			tglLahir := fmt.Sprintf("%v", dataPenduduk["tanggal_lahir"])
+
+			umur := -1
+			if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
+				umur = int(time.Since(t).Hours() / 24 / 365.25)
+			}
+
+			// Rule: Umur < 10 Tahun dan (status_bekerja = Ya ATAU kepemilikan_usaha = Ya)
+			if umur >= 0 && umur < 10 && (k.StatusBekerja == "Ya" || k.KepemilikanUsaha == "Ya") {
+				return fmt.Errorf("gagal validasi lintas domain (kependudukan): umur di bawah 10 tahun tidak boleh berstatus Bekerja atau Memiliki Usaha")
+			}
+		}
+	}
+
+	return nil
+}
+
 // ValidateKetenagakerjaanMetadata melakukan validasi isi data menggunakan Reflect Engine
 func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamKetenagakerjaan, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
@@ -56,7 +128,7 @@ func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamK
 		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
 
 		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
-			// A. Cek Mandatory (Abaikan string "0" atau "0.00" dari konversi numerik jika memang kosong di logic)
+			// A. Cek Mandatory
 			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
 				return false, fmt.Sprintf("Atribut ketenagakerjaan '%s' wajib diisi (Mandatory)", jsonTag)
 			}
@@ -92,6 +164,20 @@ func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamK
 
 // ProcessIngestion mengelola alur SCD Type 2
 func (s *KetenagakerjaanService) ProcessIngestion(k models.RekamKetenagakerjaan) (string, error) {
+	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
+	
+	// Tahap 1: Validasi Logika Internal
+	if err := s.ValidateInternalKetenagakerjaan(k); err != nil {
+		return "Error Validation", err
+	}
+
+	// Tahap 2: Validasi Logika Lintas Domain (API Call ke Kependudukan)
+	if err := s.ValidateCrossDomainAPI(k); err != nil {
+		return "Error Cross-Validation", err
+	}
+
+	// --- AKHIR BLOK VALIDASI ---
+
 	last, err := s.Storage.GetLatestByNIK(k.NIK)
 
 	if err != nil {

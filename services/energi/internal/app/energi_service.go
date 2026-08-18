@@ -3,7 +3,10 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,7 +37,52 @@ var AuditMap = map[int]string{
 	2: "INVALID",
 }
 
-// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION DENGAN REFLECT)
+// ==========================================
+// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// ==========================================
+func (s *EnergiService) ValidateInternalEnergi(k models.RekamEnergi) error {
+	// Contoh konversi daya terpasang jika berbentuk string (misal "900", "1300")
+	// Rule internal: Jika ID pelanggan PLN terisi, daya terpasang tidak boleh kosong / tidak logis
+	if strings.TrimSpace(k.IDPelangganPLN) != "" && strings.TrimSpace(k.DayaTerpasang) == "" {
+		return fmt.Errorf("gagal validasi internal: memiliki ID pelanggan PLN tetapi daya terpasang kosong")
+	}
+
+	return nil
+}
+
+// ==========================================
+// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// ==========================================
+func (s *EnergiService) ValidateCrossDomainAPI(k models.RekamEnergi) error {
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// Cek ke Domain Hunian (Port 8087) berdasarkan NoKK untuk memvalidasi sumber penerangan
+	resp, err := client.Get(fmt.Sprintf("http://localhost:8087/api/v1/domains/hunian/datasets/%s", k.NoKK))
+	if err == nil && resp.StatusCode == 200 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		var result []map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+			dataHunian := result[0]
+			sumberPenerangan := fmt.Sprintf("%v", dataHunian["sumber_penerangan_utama"])
+			
+			// Parse daya terpasang ke integer untuk pengecekan
+			dayaInt, _ := strconv.Atoi(strings.TrimSuffix(strings.ReplaceAll(k.DayaTerpasang, " watt", ""), " watt"))
+
+			// Rule: sumber_penerangan_utama = Bukan Listrik dan daya_terpasang > 0
+			if sumberPenerangan == "Bukan Listrik" && dayaInt > 0 {
+				return fmt.Errorf("gagal validasi lintas domain (hunian): sumber penerangan utama rumah tangga tercatat 'Bukan Listrik' tetapi memiliki daya terpasang > 0")
+			}
+		}
+	}
+
+	return nil
+}
+
+// ==========================================
+// 3. METADATA VALIDATOR (DYNAMIC SCHEMA)
+// ==========================================
 func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
 	if err := json.Unmarshal(definition, &schemaMap); err != nil {
@@ -91,8 +139,20 @@ func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition 
 	return true, ""
 }
 
-// 3. CONFLICT RESOLUTION & SCD TYPE 2
+// ==========================================
+// 4. INGESTION PIPELINE (SCD TYPE 2)
+// ==========================================
 func (s *EnergiService) ProcessIngestion(k models.RekamEnergi) (string, error) {
+	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
+	if err := s.ValidateInternalEnergi(k); err != nil {
+		return "Error Validation", err
+	}
+
+	if err := s.ValidateCrossDomainAPI(k); err != nil {
+		return "Error Cross-Validation", err
+	}
+	// --- AKHIR BLOK VALIDASI ---
+
 	last, err := s.Storage.GetLatestByNoKK(k.NoKK)
 
 	if err != nil {
@@ -117,6 +177,9 @@ func (s *EnergiService) ProcessIngestion(k models.RekamEnergi) (string, error) {
 	return "Abaikan", fmt.Errorf("data energi yang dikirim usang")
 }
 
+// ==========================================
+// 5. UPDATE & AUDIT LOGIC
+// ==========================================
 func (s *EnergiService) ProcessManualUpdate(nokk string, newData models.RekamEnergi) (int, error) {
 	oldData, err := s.Storage.GetLatestByNoKK(nokk)
 	if err != nil || oldData == nil {

@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
 	"strings"
 	"time"
@@ -19,7 +21,6 @@ type KesejahteraanService struct {
 }
 
 // 1. DOMAIN OWNER
-// KesejahteraanSourceRegistry
 type SourceConfig struct {
 	Name   string
 	IsWali bool
@@ -38,10 +39,72 @@ var AuditMap = map[int]string{
 	2: "INVALID",
 }
 
-// 2. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION WITH REFLECT)
-// ValidateKesejahteraanMetadata melakukan validasi isi data secara dinamis berdasarkan skema aktif
+// ==========================================
+// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// ==========================================
+func (s *KesejahteraanService) ValidateInternalKesejahteraan(k models.RekamKesejahteraan) error {
+	// Rule: Jumlah ternak tidak boleh negatif atau > 999 (standar DTSEN)
+	if k.TernakSapi < 0 || k.TernakSapi > 999 ||
+		k.TernakKerbau < 0 || k.TernakKerbau > 999 ||
+		k.TernakKuda < 0 || k.TernakKuda > 999 ||
+		k.TernakBabi < 0 || k.TernakBabi > 999 ||
+		k.TernakKambing < 0 || k.TernakKambing > 999 {
+		return fmt.Errorf("gagal validasi internal: jumlah ternak tidak berada dalam rentang wajar (0 s.d. 999)")
+	}
+
+	return nil
+}
+
+// ==========================================
+// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// ==========================================
+func (s *KesejahteraanService) ValidateCrossDomainAPI(k models.RekamKesejahteraan) error {
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// --- A. Cek ke Domain Hunian (Port 8087) ---
+	// Validasi: Aset Listrik (AC/Kulkas) vs Sumber Penerangan "Bukan Listrik"
+	respHunian, err := client.Get(fmt.Sprintf("http://localhost:8087/api/v1/domains/hunian/datasets/%s", k.NoKK))
+	if err == nil && respHunian.StatusCode == 200 {
+		defer respHunian.Body.Close()
+		body, _ := io.ReadAll(respHunian.Body)
+
+		var result []map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+			dataHunian := result[0]
+			sumberPenerangan := fmt.Sprintf("%v", dataHunian["sumber_penerangan_utama"])
+
+			if sumberPenerangan == "Bukan Listrik" && (k.AsetAC > 0 || k.AsetKulkas > 0) {
+				return fmt.Errorf("gagal validasi lintas domain (hunian): sumber penerangan utama rumah tangga tercatat 'Bukan Listrik' tetapi memiliki aset AC atau Lemari Es[cite: 1]")
+			}
+		}
+	}
+
+	// --- B. Cek ke Domain Ketenagakerjaan (Port 8085) ---
+	// Validasi: Kepemilikan Lahan vs Lapangan Usaha Pertanian/Kehutanan Skala Besar
+	respKerja, err := client.Get(fmt.Sprintf("http://localhost:8085/api/v1/domains/ketenagakerjaan/datasets/%s", k.NoKK))
+	if err == nil && respKerja.StatusCode == 200 {
+		defer respKerja.Body.Close()
+		body, _ := io.ReadAll(respKerja.Body)
+
+		var result []map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
+			dataKerja := result[0]
+			lapanganUsaha := fmt.Sprintf("%v", dataKerja["lapangan_usaha_dari_usaha_utama"])
+
+			// Jika tidak punya aset lahan (0 atau Tidak Ada) tetapi mengelola usaha tani skala besar
+			if k.AsetLahanLain == 0 && (lapanganUsaha == "Pertanian tanaman pangan dan palawija" || lapanganUsaha == "Perkebunan" || lapanganUsaha == "Kehutanan & pertanian lainnya") {
+				return fmt.Errorf("gagal validasi lintas domain (ketenagakerjaan): mengelola usaha sektor pertanian/kehutanan tetapi tidak memiliki kepemilikan aset tidak bergerak (lahan)[cite: 1]")
+			}
+		}
+	}
+
+	return nil
+}
+
+// ==========================================
+// 3. METADATA VALIDATOR (DYNAMIC SCHEMA VALIDATION WITH REFLECT)
+// ==========================================
 func (s *KesejahteraanService) ValidateKesejahteraanMetadata(k models.RekamKesejahteraan, definition datatypes.JSON) (bool, string) {
-	// 1. Parsing Aturan dari Skema Aktif di Database
 	var schemaMap map[string]interface{}
 	if err := json.Unmarshal(definition, &schemaMap); err != nil {
 		return false, "Gagal membaca aturan metadata kesejahteraan"
@@ -49,10 +112,9 @@ func (s *KesejahteraanService) ValidateKesejahteraanMetadata(k models.RekamKesej
 
 	rules, ok := schemaMap["definition"].(map[string]interface{})
 	if !ok {
-		return true, "" 
+		return true, ""
 	}
 
-	// 2. LOGIKA VALIDASI FIELD KESEJAHTERAAN (25 Variabel Utama Regsosek via Reflect)
 	val := reflect.ValueOf(k)
 	typ := reflect.TypeOf(k)
 	fixedFields := make(map[string]bool)
@@ -60,17 +122,15 @@ func (s *KesejahteraanService) ValidateKesejahteraanMetadata(k models.RekamKesej
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
-		if jsonTag == "" || jsonTag == "-" { continue }
-		
+		if jsonTag == "" || jsonTag == "-" {
+			continue
+		}
+
 		fixedFields[jsonTag] = true
-		
-		// Eksekusi logika emas: Jika integer 0, sprintf merubahnya jadi "0" (Lolos Mandatory)
-		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
+		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface())
 
 		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
 			// A. Cek Mandatory (Required)
-			// Catatan: Jika field integer bernilai 0, Sprint menjadikannya "0" sehingga lolos dari cek kosong "".
-			// Ini aman untuk field aset/ternak karena "0" adalah jawaban valid (tidak punya).
 			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
 				return false, fmt.Sprintf("Atribut kesejahteraan '%s' wajib diisi (Mandatory)", jsonTag)
 			}
@@ -90,10 +150,11 @@ func (s *KesejahteraanService) ValidateKesejahteraanMetadata(k models.RekamKesej
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 
 		if r["required"] == true {
-			// Jika diwajibkan tapi tidak ada di kolom fisik (fixed columns), cari di Additional Info
 			if !fixedFields[field] {
 				if valData, exists := extra[field]; !exists || fmt.Sprintf("%v", valData) == "" {
 					return false, fmt.Sprintf("Atribut tambahan kesejahteraan '%s' wajib diisi sesuai standar Metadata Mesh", field)
@@ -105,10 +166,20 @@ func (s *KesejahteraanService) ValidateKesejahteraanMetadata(k models.RekamKesej
 	return true, ""
 }
 
-// 3. CONFLICT RESOLUTION & SCD TYPE 2 (VERSIONING)
-// ProcessIngestion mengelola alur SCD Type 2 untuk Domain Kesejahteraan
+// ==========================================
+// 4. INGESTION PIPELINE (SCD TYPE 2)
+// ==========================================
 func (s *KesejahteraanService) ProcessIngestion(k models.RekamKesejahteraan) (string, error) {
-	// 1. Ambil versi terakhir berdasarkan NoKK (Natural Key)
+	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
+	if err := s.ValidateInternalKesejahteraan(k); err != nil {
+		return "Error Validation", err
+	}
+
+	if err := s.ValidateCrossDomainAPI(k); err != nil {
+		return "Error Cross-Validation", err
+	}
+	// --- AKHIR BLOK VALIDASI ---
+
 	last, err := s.Storage.GetLatestByNoKK(k.NoKK)
 
 	// Skenario A: Data Kesejahteraan Baru (First Entry)
@@ -122,14 +193,13 @@ func (s *KesejahteraanService) ProcessIngestion(k models.RekamKesejahteraan) (st
 	}
 
 	// Skenario B: Update Data (SCD Type 2)
-	// Logika: Diterima jika ReferenceDate lebih baru ATAU (Tanggal sama tapi dari Wali Data)
 	isNewer := k.ReferenceDate.After(last.ReferenceDate)
 	isHigherAuthority := k.ReferenceDate.Equal(last.ReferenceDate) && k.IsWaliData && !last.IsWaliData
 
 	if isNewer || isHigherAuthority {
-		k.ID = 0 // Reset ID untuk record baru di database
+		k.ID = 0
 		k.Version = last.Version + 1
-		k.AuditStatus = "PENDING" // Reset audit untuk setiap perubahan data
+		k.AuditStatus = "PENDING"
 
 		if errCreate := s.Storage.Create(&k); errCreate != nil {
 			return "Error", errCreate
@@ -140,6 +210,9 @@ func (s *KesejahteraanService) ProcessIngestion(k models.RekamKesejahteraan) (st
 	return "Abaikan", fmt.Errorf("data kesejahteraan yang dikirim lebih usang dibandingkan data di mesh")
 }
 
+// ==========================================
+// 5. UPDATE & AUDIT LOGIC
+// ==========================================
 func (s *KesejahteraanService) ProcessManualUpdate(nokk string, newData models.RekamKesejahteraan) (int, error) {
 	oldData, err := s.Storage.GetLatestByNoKK(nokk)
 	if err != nil || oldData == nil {
@@ -151,6 +224,12 @@ func (s *KesejahteraanService) ProcessManualUpdate(nokk string, newData models.R
 	newData.AuditStatus = "PENDING"
 	newData.UpdatedAt = time.Now()
 
+	if newData.IsWaliData {
+		newData.TrustScore = 80.0
+	} else {
+		newData.TrustScore = 60.0
+	}
+
 	errCreate := s.Storage.Create(&newData)
 	return newData.Version, errCreate
 }
@@ -161,7 +240,9 @@ func (s *KesejahteraanService) ProcessAuditDecision(nokkList []string, verdict i
 
 	if text, exists := AuditMap[verdict]; exists {
 		verdictText = text
-		if verdict == 1 { bonus = 20.0 }
+		if verdict == 1 {
+			bonus = 20.0
+		}
 	} else {
 		return "", fmt.Errorf("Verdict tidak valid")
 	}
