@@ -71,6 +71,7 @@ func main() {
 		AppName: "Domain Core - Data Sosial Ekonomi",
 	})
 	app.Use(logger.New())
+	app.Use(cors.New())
 
 	api := app.Group("/api/v1/social-economy")
 

@@ -34,6 +34,7 @@ func main() {
 	// Middleware: Logging & Crash Recovery
 	appFiber.Use(logger.New())
 	appFiber.Use(recover.New())
+	appFiber.Use(cors.New())
 
 	// 4. ROUTING (13 ENDPOINTS DATA MESH) 
 	api := appFiber.Group("/api/v1/domains/energi")
