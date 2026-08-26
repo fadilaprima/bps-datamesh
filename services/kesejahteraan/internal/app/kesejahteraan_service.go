@@ -63,38 +63,50 @@ func (s *KesejahteraanService) ValidateCrossDomainAPI(k models.RekamKesejahteraa
 
 	// --- A. Cek ke Domain Hunian (Port 8087) ---
 	// Validasi: Aset Listrik (AC/Kulkas) vs Sumber Penerangan "Bukan Listrik"
-	respHunian, err := client.Get(fmt.Sprintf("http://localhost:8087/api/v1/domains/hunian/datasets/%s", k.NoKK))
-	if err == nil && respHunian.StatusCode == 200 {
-		defer respHunian.Body.Close()
+	respHunian, err := client.Get(fmt.Sprintf("http://host.docker.internal:8087/api/v1/domains/hunian/datasets/%s", k.NoKK))
+	
+	if err != nil {
+		return fmt.Errorf("gagal menghubungi service hunian untuk validasi silang (pastikan service menyala): %v", err)
+	}
+	defer respHunian.Body.Close()
+
+	if respHunian.StatusCode == 200 {
 		body, _ := io.ReadAll(respHunian.Body)
 
-		var result []map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
-			dataHunian := result[0]
-			sumberPenerangan := fmt.Sprintf("%v", dataHunian["sumber_penerangan_utama"])
+		var result map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil {
+			sumberPenerangan := fmt.Sprintf("%v", result["sumber_penerangan_utama"])
 
 			if sumberPenerangan == "Bukan Listrik" && (k.AsetAC > 0 || k.AsetKulkas > 0) {
-				return fmt.Errorf("gagal validasi lintas domain (hunian): sumber penerangan utama rumah tangga tercatat 'Bukan Listrik' tetapi memiliki aset AC atau Lemari Es[cite: 1]")
+				return fmt.Errorf("gagal validasi lintas domain (hunian): sumber penerangan utama rumah tangga tercatat 'Bukan Listrik' tetapi memiliki aset AC atau Lemari Es")
 			}
+		} else {
+			return fmt.Errorf("gagal parsing JSON dari service hunian (Format Beda): %v", errJson)
 		}
 	}
 
 	// --- B. Cek ke Domain Ketenagakerjaan (Port 8085) ---
 	// Validasi: Kepemilikan Lahan vs Lapangan Usaha Pertanian/Kehutanan Skala Besar
-	respKerja, err := client.Get(fmt.Sprintf("http://localhost:8085/api/v1/domains/ketenagakerjaan/datasets/%s", k.NoKK))
-	if err == nil && respKerja.StatusCode == 200 {
-		defer respKerja.Body.Close()
+	respKerja, err := client.Get(fmt.Sprintf("http://host.docker.internal:8085/api/v1/domains/ketenagakerjaan/datasets/%s", k.NoKK))
+	
+	if err != nil {
+		return fmt.Errorf("gagal menghubungi service ketenagakerjaan untuk validasi silang (pastikan service menyala): %v", err)
+	}
+	defer respKerja.Body.Close()
+
+	if respKerja.StatusCode == 200 {
 		body, _ := io.ReadAll(respKerja.Body)
 
-		var result []map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
-			dataKerja := result[0]
-			lapanganUsaha := fmt.Sprintf("%v", dataKerja["lapangan_usaha_dari_usaha_utama"])
+		var result map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil {
+			lapanganUsaha := fmt.Sprintf("%v", result["lapangan_usaha_dari_usaha_utama"])
 
 			// Jika tidak punya aset lahan (0 atau Tidak Ada) tetapi mengelola usaha tani skala besar
 			if k.AsetLahanLain == 0 && (lapanganUsaha == "Pertanian tanaman pangan dan palawija" || lapanganUsaha == "Perkebunan" || lapanganUsaha == "Kehutanan & pertanian lainnya") {
-				return fmt.Errorf("gagal validasi lintas domain (ketenagakerjaan): mengelola usaha sektor pertanian/kehutanan tetapi tidak memiliki kepemilikan aset tidak bergerak (lahan)[cite: 1]")
+				return fmt.Errorf("gagal validasi lintas domain (ketenagakerjaan): mengelola usaha sektor pertanian/kehutanan tetapi tidak memiliki kepemilikan aset tidak bergerak (lahan)")
 			}
+		} else {
+			return fmt.Errorf("gagal parsing JSON dari service ketenagakerjaan (Format Beda): %v", errJson)
 		}
 	}
 

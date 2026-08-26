@@ -107,15 +107,21 @@ func (s *PendidikanService) ValidateCrossDomainAPI(p models.RiwayatPendidikan) e
 	client := &http.Client{Timeout: 3 * time.Second}
 
 	// Cek ke Domain Kependudukan (Port 8081) untuk mendapatkan Umur
-	resp, err := client.Get(fmt.Sprintf("http://localhost:8081/api/v1/domains/penduduk/datasets/%s", p.NIK))
-	if err == nil && resp.StatusCode == 200 {
-		defer resp.Body.Close()
+	resp, err := client.Get(fmt.Sprintf("http://host.docker.internal:8081/api/v1/domains/penduduk/datasets/%s", p.NIK))
+	
+	// PENAMBAHAN: Blok fail-closed jika koneksi ke domain lain gagal
+	if err != nil {
+		return fmt.Errorf("gagal menghubungi service kependudukan untuk validasi silang (pastikan service menyala): %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
 		body, _ := io.ReadAll(resp.Body)
 
-		var result []map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
-			dataPenduduk := result[0]
-			tglLahir := fmt.Sprintf("%v", dataPenduduk["tanggal_lahir"])
+		// PERBAIKAN: Gunakan Object tunggal, bukan Array
+		var result map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil {
+			tglLahir := fmt.Sprintf("%v", result["tanggal_lahir"])
 
 			umur := -1
 			if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
@@ -142,6 +148,9 @@ func (s *PendidikanService) ValidateCrossDomainAPI(p models.RiwayatPendidikan) e
 					return fmt.Errorf("gagal validasi lintas domain (kependudukan): umur di bawah 18 tahun tidak wajar memiliki ijazah setingkat S1 ke atas")
 				}
 			}
+		} else {
+			// ANTI SILENT-FAILURE: Berteriak jika format JSON tidak sesuai!
+			return fmt.Errorf("gagal parsing JSON dari service kependudukan (Format Beda): %v", errJson)
 		}
 	}
 

@@ -48,6 +48,7 @@ func (s *KesehatanService) ValidateInternalKesehatan(k models.RekamKesehatan) er
 	// Contoh Rule Internal: Kondisi gizi balita/anak tidak boleh berisi teks ngawur atau tidak valid jika diisi
 	if k.KondisiGizi != "" && k.KondisiGizi != "Kurang gizi (Wasting)" && k.KondisiGizi != "Kerdil (Stunting)" && k.KondisiGizi != "Tidak ada catatan" && k.KondisiGizi != "Tidak tahu" {
 		// Bisa disesuaikan dengan standar isian DTSEN kamu
+		return fmt.Errorf("gagal validasi internal: kondisi gizi diisi dengan nilai yang tidak dikenali")
 	}
 
 	return nil
@@ -60,25 +61,34 @@ func (s *KesehatanService) ValidateCrossDomainAPI(k models.RekamKesehatan) error
 	client := &http.Client{Timeout: 3 * time.Second}
 
 	// Cek ke Domain Kependudukan (Port 8081) untuk mendapatkan umur / tanggal lahir jika dibutuhkan
-	resp, err := client.Get(fmt.Sprintf("http://localhost:8081/api/v1/domains/penduduk/datasets/%s", k.NIK))
-	if err == nil && resp.StatusCode == 200 {
-		defer resp.Body.Close()
+	// PERBAIKAN 1: Gunakan host.docker.internal
+	resp, err := client.Get(fmt.Sprintf("http://host.docker.internal:8081/api/v1/domains/penduduk/datasets/%s", k.NIK))
+	
+	// PERBAIKAN 2: Fail-Closed jika koneksi terputus
+	if err != nil {
+		return fmt.Errorf("gagal menghubungi service kependudukan untuk validasi silang (pastikan service menyala): %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
 		body, _ := io.ReadAll(resp.Body)
 
-		var result []map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
-			dataPenduduk := result[0]
-			tglLahir := fmt.Sprintf("%v", dataPenduduk["tanggal_lahir"])
+		// PERBAIKAN 3: Parsing Object tunggal & Anti-Silent Failure
+		var result map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil {
+			tglLahir := fmt.Sprintf("%v", result["tanggal_lahir"])
 
 			umur := -1
 			if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
 				umur = int(time.Since(t).Hours() / 24 / 365.25)
 			}
 
-			// Contoh Rule Silang: Kondisi gizi atau pemeriksaan balita untuk umur tertentu
+			// Rule Silang: Kondisi gizi stunting umumnya dicatat untuk balita (<= 5 tahun)
 			if umur >= 0 && umur > 5 && k.KondisiGizi == "Kerdil (Stunting)" {
-				// Validasi tambahan lintas domain jika diperlukan
+				return fmt.Errorf("gagal validasi lintas domain (kependudukan): kondisi gizi 'Kerdil (Stunting)' tidak wajar untuk umur di atas 5 tahun")
 			}
+		} else {
+			return fmt.Errorf("gagal parsing JSON dari service kependudukan (Format Beda): %v", errJson)
 		}
 	}
 

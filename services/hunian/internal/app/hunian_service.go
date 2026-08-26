@@ -61,39 +61,49 @@ func (s *HunianService) ValidateCrossDomainAPI(k models.RekamHunian) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
 	// Cek ke Domain Energi (Port 8088) berdasarkan NoKK
-	respEnergi, err := client.Get(fmt.Sprintf("http://localhost:8088/api/v1/domains/energi/datasets/%s", k.NoKK))
-	if err == nil && respEnergi.StatusCode == 200 {
-		defer respEnergi.Body.Close()
+	respEnergi, err := client.Get(fmt.Sprintf("http://host.docker.internal:8088/api/v1/domains/energi/datasets/%s", k.NoKK))
+	if err != nil {
+		return fmt.Errorf("gagal menghubungi service energi untuk validasi silang (pastikan service menyala): %v", err)
+	}
+	defer respEnergi.Body.Close()
+
+	if respEnergi.StatusCode == 200 {
 		body, _ := io.ReadAll(respEnergi.Body)
 
-		var result []map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
-			dataEnergi := result[0]
-			dayaTerpasang, _ := strconv.Atoi(fmt.Sprintf("%v", dataEnergi["daya_terpasang"]))
+		var result map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil {
+			dayaTerpasang, _ := strconv.Atoi(fmt.Sprintf("%v", result["daya_terpasang"]))
 
 			// Rule: SumberPenerangan = Bukan Listrik dan daya_terpasang > 0
 			if k.SumberPenerangan == "Bukan Listrik" && dayaTerpasang > 0 {
 				return fmt.Errorf("gagal validasi lintas domain (energi): sumber penerangan bukan listrik tetapi terdapat daya terpasang > 0")
 			}
+		} else {
+			return fmt.Errorf("gagal parsing JSON dari service energi (Format Beda): %v", errJson)
 		}
 	}
 
 	// Cek ke Domain Kesejahteraan (Port 8086) berdasarkan NoKK
-	respKes, err := client.Get(fmt.Sprintf("http://localhost:8086/api/v1/domains/kesejahteraan/datasets/%s", k.NoKK))
-	if err == nil && respKes.StatusCode == 200 {
-		defer respKes.Body.Close()
+	respKes, err := client.Get(fmt.Sprintf("http://host.docker.internal:8086/api/v1/domains/kesejahteraan/datasets/%s", k.NoKK))
+	if err != nil {
+		return fmt.Errorf("gagal menghubungi service kesejahteraan untuk validasi silang (pastikan service menyala): %v", err)
+	}
+	defer respKes.Body.Close()
+
+	if respKes.StatusCode == 200 {
 		body, _ := io.ReadAll(respKes.Body)
 
-		var result []map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
-			dataKes := result[0]
-			asetAc := fmt.Sprintf("%v", dataKes["aset_bergerak_ac"])
-			asetKulkas := fmt.Sprintf("%v", dataKes["aset_bergerak_lemari_es"])
+		var result map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil {
+			asetAc := fmt.Sprintf("%v", result["aset_bergerak_ac"])
+			asetKulkas := fmt.Sprintf("%v", result["aset_bergerak_lemari_es"])
 
 			// Rule: SumberPenerangan = Bukan Listrik dan (aset_bergerak_ac = Ya ATAU aset_bergerak_lemari_es = Ya)
 			if k.SumberPenerangan == "Bukan Listrik" && (asetAc == "Ya" || asetAc == "1" || asetKulkas == "Ya" || asetKulkas == "1") {
 				return fmt.Errorf("gagal validasi lintas domain (kesejahteraan): sumber penerangan utama bukan listrik tetapi memiliki aset AC atau Lemari Es")
 			}
+		} else {
+			return fmt.Errorf("gagal parsing JSON dari service kesejahteraan (Format Beda): %v", errJson)
 		}
 	}
 

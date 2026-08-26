@@ -80,15 +80,21 @@ func (s *KetenagakerjaanService) ValidateCrossDomainAPI(k models.RekamKetenagake
 	client := &http.Client{Timeout: 3 * time.Second}
 
 	// Cek ke Domain Kependudukan (Port 8081) untuk mendapatkan Tanggal Lahir / Umur
-	resp, err := client.Get(fmt.Sprintf("http://localhost:8081/api/v1/domains/penduduk/datasets/%s", k.NIK))
-	if err == nil && resp.StatusCode == 200 {
-		defer resp.Body.Close()
+	resp, err := client.Get(fmt.Sprintf("http://host.docker.internal:8081/api/v1/domains/penduduk/datasets/%s", k.NIK))
+	
+	// PENAMBAHAN: Blok fail-closed jika koneksi ke domain lain gagal
+	if err != nil {
+		return fmt.Errorf("gagal menghubungi service kependudukan untuk validasi silang (pastikan service menyala): %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
 		body, _ := io.ReadAll(resp.Body)
 
-		var result []map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
-			dataPenduduk := result[0]
-			tglLahir := fmt.Sprintf("%v", dataPenduduk["tanggal_lahir"])
+		// PERBAIKAN: Gunakan Object tunggal, bukan Array
+		var result map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil {
+			tglLahir := fmt.Sprintf("%v", result["tanggal_lahir"])
 
 			umur := -1
 			if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
@@ -99,12 +105,18 @@ func (s *KetenagakerjaanService) ValidateCrossDomainAPI(k models.RekamKetenagake
 			if umur >= 0 && umur < 10 && (k.StatusBekerja == "Ya" || k.KepemilikanUsaha == "Ya") {
 				return fmt.Errorf("gagal validasi lintas domain (kependudukan): umur di bawah 10 tahun tidak boleh berstatus Bekerja atau Memiliki Usaha")
 			}
+		} else {
+			// ANTI SILENT-FAILURE: Berteriak jika format JSON tidak sesuai!
+			return fmt.Errorf("gagal parsing JSON dari service kependudukan (Format Beda): %v", errJson)
 		}
 	}
 
 	return nil
 }
 
+// ==========================================
+// 3. KODE BAWAAN METADATA VALIDATION
+// ==========================================
 // ValidateKetenagakerjaanMetadata melakukan validasi isi data menggunakan Reflect Engine
 func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamKetenagakerjaan, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
@@ -162,6 +174,9 @@ func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamK
 	return true, ""
 }
 
+// ==========================================
+// 4. INGESTION PIPELINE (SCD Type 2)
+// ==========================================
 // ProcessIngestion mengelola alur SCD Type 2
 func (s *KetenagakerjaanService) ProcessIngestion(k models.RekamKetenagakerjaan) (string, error) {
 	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
@@ -202,6 +217,9 @@ func (s *KetenagakerjaanService) ProcessIngestion(k models.RekamKetenagakerjaan)
 	return "Abaikan", fmt.Errorf("data ketenagakerjaan yang dikirim usang")
 }
 
+// ==========================================
+// 5. UPDATE & AUDIT LOGIC
+// ==========================================
 func (s *KetenagakerjaanService) ProcessManualUpdate(nik string, newData models.RekamKetenagakerjaan) (int, error) {
 	oldData, err := s.Storage.GetLatestByNIK(nik)
 	if err != nil || oldData == nil {

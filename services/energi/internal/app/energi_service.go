@@ -57,16 +57,22 @@ func (s *EnergiService) ValidateCrossDomainAPI(k models.RekamEnergi) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
 	// Cek ke Domain Hunian (Port 8087) berdasarkan NoKK untuk memvalidasi sumber penerangan
-	resp, err := client.Get(fmt.Sprintf("http://localhost:8087/api/v1/domains/hunian/datasets/%s", k.NoKK))
-	if err == nil && resp.StatusCode == 200 {
-		defer resp.Body.Close()
+	resp, err := client.Get(fmt.Sprintf("http://host.docker.internal:8087/api/v1/domains/hunian/datasets/%s", k.NoKK))
+
+	// PENAMBAHAN: Blok fail-closed jika koneksi ke domain lain gagal
+	if err != nil {
+		return fmt.Errorf("gagal menghubungi service hunian untuk validasi silang (pastikan service menyala): %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
 		body, _ := io.ReadAll(resp.Body)
 
-		var result []map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil && len(result) > 0 {
-			dataHunian := result[0]
-			sumberPenerangan := fmt.Sprintf("%v", dataHunian["sumber_penerangan_utama"])
-			
+		// PERBAIKAN: Gunakan Object tunggal & Anti-Silent Failure
+		var result map[string]interface{}
+		if errJson := json.Unmarshal(body, &result); errJson == nil {
+			sumberPenerangan := fmt.Sprintf("%v", result["sumber_penerangan_utama"])
+
 			// Parse daya terpasang ke integer untuk pengecekan
 			dayaInt, _ := strconv.Atoi(strings.TrimSuffix(strings.ReplaceAll(k.DayaTerpasang, " watt", ""), " watt"))
 
@@ -74,6 +80,8 @@ func (s *EnergiService) ValidateCrossDomainAPI(k models.RekamEnergi) error {
 			if sumberPenerangan == "Bukan Listrik" && dayaInt > 0 {
 				return fmt.Errorf("gagal validasi lintas domain (hunian): sumber penerangan utama rumah tangga tercatat 'Bukan Listrik' tetapi memiliki daya terpasang > 0")
 			}
+		} else {
+			return fmt.Errorf("gagal parsing JSON dari service hunian (Format Beda): %v", errJson)
 		}
 	}
 
@@ -90,7 +98,9 @@ func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition 
 	}
 
 	rules, ok := schemaMap["definition"].(map[string]interface{})
-	if !ok { return true, "" }
+	if !ok {
+		return true, ""
+	}
 
 	val := reflect.ValueOf(k)
 	typ := reflect.TypeOf(k)
@@ -99,10 +109,12 @@ func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
-		if jsonTag == "" || jsonTag == "-" { continue }
-		
+		if jsonTag == "" || jsonTag == "-" {
+			continue
+		}
+
 		fixedFields[jsonTag] = true
-		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
+		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface())
 
 		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
 			// A. Cek Mandatory (Required)
@@ -125,7 +137,9 @@ func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition 
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 
 		if r["required"] == true {
 			if !fixedFields[field] {
@@ -158,7 +172,9 @@ func (s *EnergiService) ProcessIngestion(k models.RekamEnergi) (string, error) {
 	if err != nil {
 		k.Version = 1
 		k.AuditStatus = "PENDING"
-		if errCreate := s.Storage.Create(&k); errCreate != nil { return "Error", errCreate }
+		if errCreate := s.Storage.Create(&k); errCreate != nil {
+			return "Error", errCreate
+		}
 		return "Sukses v1 (Initial Entry)", nil
 	}
 
@@ -166,11 +182,13 @@ func (s *EnergiService) ProcessIngestion(k models.RekamEnergi) (string, error) {
 	isHigherAuthority := k.ReferenceDate.Equal(last.ReferenceDate) && k.IsWaliData && !last.IsWaliData
 
 	if isNewer || isHigherAuthority {
-		k.ID = 0 
+		k.ID = 0
 		k.Version = last.Version + 1
-		k.AuditStatus = "PENDING" 
+		k.AuditStatus = "PENDING"
 
-		if errCreate := s.Storage.Create(&k); errCreate != nil { return "Error", errCreate }
+		if errCreate := s.Storage.Create(&k); errCreate != nil {
+			return "Error", errCreate
+		}
 		return fmt.Sprintf("Sukses v%d (Energi Updated)", k.Version), nil
 	}
 
@@ -191,7 +209,11 @@ func (s *EnergiService) ProcessManualUpdate(nokk string, newData models.RekamEne
 	newData.AuditStatus = "PENDING"
 	newData.UpdatedAt = time.Now()
 
-	if newData.IsWaliData { newData.TrustScore = 80.0 } else { newData.TrustScore = 60.0 }
+	if newData.IsWaliData {
+		newData.TrustScore = 80.0
+	} else {
+		newData.TrustScore = 60.0
+	}
 
 	errCreate := s.Storage.Create(&newData)
 	return newData.Version, errCreate
@@ -203,7 +225,9 @@ func (s *EnergiService) ProcessAuditDecision(nokkList []string, verdict int) (st
 
 	if text, exists := AuditMap[verdict]; exists {
 		verdictText = text
-		if verdict == 1 { bonus = 20.0 }
+		if verdict == 1 {
+			bonus = 20.0
+		}
 	} else {
 		return "", fmt.Errorf("Verdict tidak valid")
 	}
