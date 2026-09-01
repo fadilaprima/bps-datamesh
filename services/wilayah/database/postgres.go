@@ -1,22 +1,30 @@
 package database
 
 import (
-   "wilayah/models"
-    "gorm.io/driver/postgres"
-    "gorm.io/gorm"
+	"fmt"
+	"os"
+
+	"wilayah/models"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-// Menginisialisasi koneksi ke database PostgreSQL
 func InitDB() *gorm.DB {
-	dsn := "host=127.0.0.1 user=postgres password=admin dbname=postgres port=5433 sslmode=disable"
-	
+	dsn := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		os.Getenv("DB_HOST_WILAYAH"),
+		os.Getenv("DB_USER_WILAYAH"),
+		os.Getenv("DB_PASS_WILAYAH"),
+		os.Getenv("DB_NAME_WILAYAH"),
+		os.Getenv("DB_PORT_WILAYAH"),
+	)
+
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		panic("Gagal koneksi database Wilayah")
+		panic("Gagal koneksi database Wilayah: " + err.Error())
 	}
-	
-	// AutoMigrate secara otomatis menyesuaikan struktur tabel di DB dengan struct MasterWilayah
+
 	db.AutoMigrate(&models.MasterWilayah{})
-	
+	fmt.Println("Database Wilayah Sinkron & Terkoneksi")
 	return db
 }

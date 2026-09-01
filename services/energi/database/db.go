@@ -1,23 +1,30 @@
 package database
 
 import (
+	"fmt"
+	"os"
+
 	"energi/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-// InitDB menginisialisasi koneksi ke database PostgreSQL untuk Domain Energi
 func InitDB() *gorm.DB {
-	// DSN menggunakan Port 5435 sesuai spesifikasi Domain Energi
-	dsn := "host=127.0.0.1 user=postgres password=admin dbname=postgres port=5435 sslmode=disable"
-	
+	dsn := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		os.Getenv("DB_HOST_ENERGI"),
+		os.Getenv("DB_USER_ENERGI"),
+		os.Getenv("DB_PASS_ENERGI"),
+		os.Getenv("DB_NAME_ENERGI"),
+		os.Getenv("DB_PORT_ENERGI"),
+	)
+
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		panic("Gagal koneksi database Energi")
+		panic("Gagal koneksi database Energi: " + err.Error())
 	}
-	
-	// AutoMigrate secara otomatis menyesuaikan struktur tabel di DB dengan struct RekamEnergi
+
 	db.AutoMigrate(&models.RekamEnergi{})
-	
+	fmt.Println("Database Energi Sinkron & Terkoneksi")
 	return db
 }

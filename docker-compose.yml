@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  db_kependudukan:
+    image: postgres:latest
+    container_name: db_kependudukan
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=db_kependudukan
+    ports:
+      - "5431:5432"
+
+  db_pendidikan:
+    image: postgres:latest
+    container_name: db_pendidikan
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=db_pendidikan
+    ports:
+      - "5434:5432"
+
+  db_wilayah:
+    image: postgres:latest
+    container_name: db_wilayah
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=db_wilayah
+    ports:
+      - "5433:5432"
+
+  db_kesehatan:
+    image: postgres:latest
+    container_name: db_kesehatan
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=db_kesehatan
+    ports:
+      - "5437:5432"
+
+  db_ketenagakerjaan:
+    image: postgres:latest
+    container_name: db_ketenagakerjaan
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=db_ketenagakerjaan
+    ports:
+      - "5439:5432"
+
+  db_kesejahteraan:
+    image: postgres:latest
+    container_name: db_kesejahteraan
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=db_kesejahteraan
+    ports:
+      - "5436:5432"
+
+  db_hunian:
+    image: postgres:latest
+    container_name: db_hunian
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=db_hunian
+    ports:
+      - "5438:5432"
+
+  db_energi:
+    image: postgres:latest
+    container_name: db_energi
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=db_energi
+    ports:
+      - "5435:5432"
