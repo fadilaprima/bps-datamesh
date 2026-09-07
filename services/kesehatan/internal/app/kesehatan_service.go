@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -61,8 +62,10 @@ func (s *KesehatanService) ValidateCrossDomainAPI(k models.RekamKesehatan) error
 	client := &http.Client{Timeout: 3 * time.Second}
 
 	// Cek ke Domain Kependudukan (Port 8081) untuk mendapatkan umur / tanggal lahir jika dibutuhkan
-	// PERBAIKAN 1: Gunakan host.docker.internal
-	resp, err := client.Get(fmt.Sprintf("http://host.docker.internal:8081/api/v1/domains/penduduk/datasets/%s", k.NIK))
+	baseURLKependudukan := os.Getenv("URL_KEPENDUDUKAN")
+	targetURL := fmt.Sprintf("%s/api/v1/domains/penduduk/datasets/%s", baseURLKependudukan, k.NIK)
+	
+	resp, err := client.Get(targetURL)
 	
 	// PERBAIKAN 2: Fail-Closed jika koneksi terputus
 	if err != nil {

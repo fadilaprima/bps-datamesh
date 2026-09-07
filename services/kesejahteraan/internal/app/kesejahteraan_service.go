@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -63,7 +64,10 @@ func (s *KesejahteraanService) ValidateCrossDomainAPI(k models.RekamKesejahteraa
 
 	// --- A. Cek ke Domain Hunian (Port 8087) ---
 	// Validasi: Aset Listrik (AC/Kulkas) vs Sumber Penerangan "Bukan Listrik"
-	respHunian, err := client.Get(fmt.Sprintf("http://host.docker.internal:8087/api/v1/domains/hunian/datasets/%s", k.NoKK))
+	baseURLHunian := os.Getenv("URL_HUNIAN")
+	targetURLHunian := fmt.Sprintf("%s/api/v1/domains/hunian/datasets/%s", baseURLHunian, k.NoKK)
+	
+	respHunian, err := client.Get(targetURLHunian)
 	
 	if err != nil {
 		return fmt.Errorf("gagal menghubungi service hunian untuk validasi silang (pastikan service menyala): %v", err)
@@ -87,7 +91,10 @@ func (s *KesejahteraanService) ValidateCrossDomainAPI(k models.RekamKesejahteraa
 
 	// --- B. Cek ke Domain Ketenagakerjaan (Port 8085) ---
 	// Validasi: Kepemilikan Lahan vs Lapangan Usaha Pertanian/Kehutanan Skala Besar
-	respKerja, err := client.Get(fmt.Sprintf("http://host.docker.internal:8085/api/v1/domains/ketenagakerjaan/datasets/%s", k.NoKK))
+	baseURLKetenagakerjaan := os.Getenv("URL_KETENAGAKERJAAN")
+	targetURLKetenagakerjaan := fmt.Sprintf("%s/api/v1/domains/ketenagakerjaan/datasets/%s", baseURLKetenagakerjaan, k.NoKK)
+	
+	respKerja, err := client.Get(targetURLKetenagakerjaan)
 	
 	if err != nil {
 		return fmt.Errorf("gagal menghubungi service ketenagakerjaan untuk validasi silang (pastikan service menyala): %v", err)

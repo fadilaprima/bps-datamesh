@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -81,7 +82,10 @@ func (s *PendudukService) ValidateCrossDomainAPI(p models.Penduduk) error {
 
 	// --- A. Cek ke Domain Pendidikan (Port 8082) ---
 	if umur >= 0 && umur < 18 {
-		resp, err := client.Get(fmt.Sprintf("http://host.docker.internal:8082/api/v1/domains/pendidikan/datasets/%s", p.NIK))
+		baseURLPendidikan := os.Getenv("URL_PENDIDIKAN")
+		targetURL := fmt.Sprintf("%s/api/v1/domains/pendidikan/datasets/%s", baseURLPendidikan, p.NIK)
+		
+		resp, err := client.Get(targetURL)
 		if err != nil {
 			return fmt.Errorf("gagal menghubungi service pendidikan: %v", err)
 		}
@@ -116,7 +120,10 @@ func (s *PendudukService) ValidateCrossDomainAPI(p models.Penduduk) error {
 
 	// --- B. Cek ke Domain Ketenagakerjaan (Port 8085) ---
 	if umur >= 0 && umur < 10 {
-		resp, err := client.Get(fmt.Sprintf("http://host.docker.internal:8085/api/v1/domains/ketenagakerjaan/datasets/%s", p.NIK))
+		baseURLKetenagakerjaan := os.Getenv("URL_KETENAGAKERJAAN")
+		targetURL := fmt.Sprintf("%s/api/v1/domains/ketenagakerjaan/datasets/%s", baseURLKetenagakerjaan, p.NIK)
+		
+		resp, err := client.Get(targetURL)
 		if err != nil {
 			return fmt.Errorf("gagal menghubungi service ketenagakerjaan: %v", err)
 		}

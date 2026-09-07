@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -60,8 +61,11 @@ func (s *HunianService) ValidateInternalHunian(k models.RekamHunian) error {
 func (s *HunianService) ValidateCrossDomainAPI(k models.RekamHunian) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// Cek ke Domain Energi (Port 8088) berdasarkan NoKK
-	respEnergi, err := client.Get(fmt.Sprintf("http://host.docker.internal:8088/api/v1/domains/energi/datasets/%s", k.NoKK))
+	// Cek ke Domain Energi berdasarkan NoKK
+	baseURLEnergi := os.Getenv("URL_ENERGI")
+	targetURLEnergi := fmt.Sprintf("%s/api/v1/domains/energi/datasets/%s", baseURLEnergi, k.NoKK)
+	
+	respEnergi, err := client.Get(targetURLEnergi)
 	if err != nil {
 		return fmt.Errorf("gagal menghubungi service energi untuk validasi silang (pastikan service menyala): %v", err)
 	}
@@ -83,8 +87,11 @@ func (s *HunianService) ValidateCrossDomainAPI(k models.RekamHunian) error {
 		}
 	}
 
-	// Cek ke Domain Kesejahteraan (Port 8086) berdasarkan NoKK
-	respKes, err := client.Get(fmt.Sprintf("http://host.docker.internal:8086/api/v1/domains/kesejahteraan/datasets/%s", k.NoKK))
+	// Cek ke Domain Kesejahteraan berdasarkan NoKK
+	baseURLKesejahteraan := os.Getenv("URL_KESEJAHTERAAN")
+	targetURLKesejahteraan := fmt.Sprintf("%s/api/v1/domains/kesejahteraan/datasets/%s", baseURLKesejahteraan, k.NoKK)
+	
+	respKes, err := client.Get(targetURLKesejahteraan)
 	if err != nil {
 		return fmt.Errorf("gagal menghubungi service kesejahteraan untuk validasi silang (pastikan service menyala): %v", err)
 	}

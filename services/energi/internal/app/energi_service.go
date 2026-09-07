@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -56,8 +57,11 @@ func (s *EnergiService) ValidateInternalEnergi(k models.RekamEnergi) error {
 func (s *EnergiService) ValidateCrossDomainAPI(k models.RekamEnergi) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// Cek ke Domain Hunian (Port 8087) berdasarkan NoKK untuk memvalidasi sumber penerangan
-	resp, err := client.Get(fmt.Sprintf("http://host.docker.internal:8087/api/v1/domains/hunian/datasets/%s", k.NoKK))
+	// Cek ke Domain Hunian berdasarkan NoKK untuk memvalidasi sumber penerangan
+	baseURLHunian := os.Getenv("URL_HUNIAN")
+	targetURL := fmt.Sprintf("%s/api/v1/domains/hunian/datasets/%s", baseURLHunian, k.NoKK)
+	
+	resp, err := client.Get(targetURL)
 
 	// PENAMBAHAN: Blok fail-closed jika koneksi ke domain lain gagal
 	if err != nil {
