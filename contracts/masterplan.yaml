@@ -1,20 +1,33 @@
 openapi: 3.0.3
 info:
-  title: Data Mesh Masterplan API - Comprehensive Edition
+  title: Data Mesh DTSEN- SKRIPSI
   description: |
-    Dokumentasi API Final untuk Arsitektur Data Mesh.
-    Sinkronisasi otomatis antara Core Domain dan Supporting Domains.
+    Dokumentasi API Final untuk Arsitektur Data Mesh BPS.
+    Mendukung sinkronisasi otomatis antara Core Domain dan 8 Supporting/Generic Domains.
   version: 1.0.0
 
 servers:
-  - url: http://localhost:8000/api/v1
-    description: Core Domain (Social Economy - Aggregator)
-  - url: http://localhost:8081/api/v1
-    description: Generic Domain (Kependudukan)
-  - url: http://localhost:8082/api/v1
-    description: Supporting Domain (Pendidikan)
-  - url: http://localhost:8083/api/v1
-    description: Generic Domain (Wilayah)
+  - url: 'http://datamesh.eastasia.cloudapp.azure.com:{port}/api/v1'
+    description: Production Server (Azure VM)
+    variables:
+      port:
+        default: '8000'
+        description: Port masing-masing microservice
+        enum:
+          - '8000' # Core Domain (Social Economy Aggregator)
+          - '8081' # Kependudukan
+          - '8082' # Pendidikan
+          - '8083' # Wilayah
+          - '8084' # Kesehatan
+          - '8085' # Ketenagakerjaan
+          - '8086' # Kesejahteraan
+          - '8087' # Hunian
+          - '8088' # Energi
+  - url: 'http://localhost:{port}/api/v1'
+    description: Local Development Server
+    variables:
+      port:
+        default: '8000'
 
 paths:
   # ==========================================
@@ -28,6 +41,10 @@ paths:
       tags: [Metadata]
       responses:
         '200': {description: OK}
+  
+  /domains/{domain}/schemas:
+    parameters:
+      - $ref: '#/components/parameters/DomainParam'
     post:
       summary: (UC-04) Register Skema Baru
       tags: [Metadata]
@@ -39,26 +56,15 @@ paths:
               $ref: '#/components/schemas/SchemaRequest'
       responses:
         '201': {description: Created}
-    patch:
-      summary: (UC-06) Revisi Skema (Incremental)
-      tags: [Metadata]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SchemaRequest'
-      responses:
-        '200': {description: Updated}
 
   # ==========================================
-  # 2. DATA INGESTION
+  # 2. DATA INGESTION PIPELINE
   # ==========================================
   /domains/{domain}/submissions:
     parameters:
       - $ref: '#/components/parameters/DomainParam'
     post:
-      summary: (UC-07) Ingest Data (Multipart)
+      summary: (UC-07) Ingest Data (CSV/Parquet/JSON)
       tags: [Ingestion]
       requestBody:
         required: true
@@ -67,65 +73,70 @@ paths:
             schema:
               type: object
               properties:
-                file: {type: string, format: binary}
-                owner: {type: string, example: "Dinas terkait"}
+                document: {type: string, format: binary, description: "File data (CSV/Parquet)"}
+                source_id: {type: string, example: "1", description: "ID Wali Data"}
                 reference_date: {type: string, format: date, example: "2026-02-17"}
       responses:
-        '202': {description: Accepted}
+        '200': {description: Ingestion Finished}
 
-  /domains/{domain}/submissions/{id}/validation:
+  /domains/{domain}/validation/{identifier}:
     parameters:
       - $ref: '#/components/parameters/DomainParam'
-      - $ref: '#/components/parameters/IdParam'
+      - $ref: '#/components/parameters/IdentifierParam'
     get:
-      summary: (UC-08) Cek Status Validasi
-      tags: [Ingestion]
+      summary: (UC-08) Cek Status Validasi (Audit Status)
+      tags: [Tracking]
       responses:
         '200': {description: OK}
 
-  /domains/{domain}/submissions/{id}/scoring:
+  /domains/{domain}/scoring/{identifier}:
     parameters:
       - $ref: '#/components/parameters/DomainParam'
-      - $ref: '#/components/parameters/IdParam'
+      - $ref: '#/components/parameters/IdentifierParam'
     get:
-      summary: (UC-09) Cek Laporan Kualitas
-      tags: [Ingestion]
+      summary: (UC-09) Cek Trust Score & Kualitas
+      tags: [Tracking]
       responses:
         '200': {description: OK}
 
-  /domains/{domain}/submissions/{id}/progress:
+  /domains/{domain}/progress/{identifier}:
     parameters:
       - $ref: '#/components/parameters/DomainParam'
-      - $ref: '#/components/parameters/IdParam'
+      - $ref: '#/components/parameters/IdentifierParam'
     get:
       summary: Cek Progres Sinkronisasi Database
-      tags: [Ingestion]
+      tags: [Tracking]
       responses:
         '200': {description: OK}
 
   # ==========================================
-  # 3. DATASET MAINTENANCE
+  # 3. DATASET MAINTENANCE (CRUD)
   # ==========================================
   /domains/{domain}/datasets:
     parameters:
       - $ref: '#/components/parameters/DomainParam'
     get:
-      summary: (UC-10) Katalog Golden Record
+      summary: (UC-10) Katalog Golden Record Aktif
       tags: [Dataset]
+      parameters:
+        - in: query
+          name: fields
+          schema: {type: string}
+          description: "Comma-separated list of fields to return"
       responses:
         '200': {description: OK}
 
-  /domains/{domain}/datasets/{id}:
+  /domains/{domain}/datasets/{identifier}:
     parameters:
       - $ref: '#/components/parameters/DomainParam'
-      - $ref: '#/components/parameters/IdParam'
+      - $ref: '#/components/parameters/IdentifierParam'
     get:
       summary: (UC-11) Detail Record Spesifik
       tags: [Dataset]
       responses:
         '200': {description: OK}
     put:
-      summary: (UC-12) Koreksi Nilai (SCD Type 2)
+      summary: (UC-12) Koreksi Nilai Manual (SCD Type 2)
       tags: [Dataset]
       requestBody:
         required: true
@@ -133,26 +144,28 @@ paths:
           application/json:
             schema:
               type: object
-              properties:
-                data: {type: object, example: {"status": "aktif", "nilai": 90}}
-                correction_note: {type: string, example: "Update manual via UI"}
+              description: "Kirim payload sesuai skema domain masing-masing"
       responses:
-        '200': {description: Updated}
+        '200': {description: Updated & Versioned}
     delete:
-      summary: (UC-13) Soft Delete
+      summary: (UC-13) Soft Delete Record
       tags: [Dataset]
       responses:
-        '200': {description: Deleted}
+        '200': {description: Soft Deleted}
 
   # ==========================================
-  # 4. GOVERNANCE & AUDIT
+  # 4. GOVERNANCE & AUDIT LOGIC
   # ==========================================
   /domains/{domain}/audit/samples:
     parameters:
       - $ref: '#/components/parameters/DomainParam'
     get:
-      summary: (UC-14) Request Materi Audit
+      summary: (UC-14) Request Sampel PENDING Audit
       tags: [Governance]
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 10}
       responses:
         '200': {description: OK}
 
@@ -160,7 +173,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/DomainParam'
     post:
-      summary: (UC-15) Kirim Keputusan Audit
+      summary: (UC-15) Kirim Keputusan Audit (Bulk)
       tags: [Governance]
       requestBody:
         required: true
@@ -169,19 +182,24 @@ paths:
             schema:
               type: object
               properties:
-                submission_id: {type: string}
-                verdict: {type: string, enum: [APPROVED, REJECTED]}
-                reason: {type: string, example: "Format sesuai standar"}
+                identifiers: 
+                  type: array
+                  items: {type: string}
+                  description: "Array NIK, NoKK, atau Kode Desa"
+                verdict: 
+                  type: integer
+                  enum: [1, 2]
+                  description: "1 untuk VALID, 2 untuk INVALID"
       responses:
         '200': {description: Verdict Saved}
 
   # ==========================================
-  # 5. CORE DOMAIN CONSUMPTION
+  # 5. CORE DOMAIN (SOCIAL ECONOMY)
   # ==========================================
   /social-economy/registry:
     get:
       summary: (UC-18) Lihat Daftar Domain Mesh
-      tags: [Infrastructure]
+      tags: [Infrastructure - Core]
       responses:
         '200': {description: OK}
 
@@ -191,10 +209,10 @@ paths:
         in: path
         required: true
         schema: {type: string}
-        example: "1234567890123456"
+        example: "3518xxxxxxxxxxxx"
     get:
       summary: (UC-19) Profil Terpadu (Data Stitching)
-      tags: [Consumption]
+      tags: [Consumption - Core]
       responses:
         '200': {description: OK}
 
@@ -204,20 +222,21 @@ components:
       name: domain
       in: path
       required: true
-      schema: {type: string, default: pendidikan}
-    IdParam:
-      name: id
+      schema: 
+        type: string
+        enum: [kependudukan, pendidikan, ketenagakerjaan, kesejahteraan, kesehatan, hunian, energi, wilayah]
+    IdentifierParam:
+      name: identifier
       in: path
       required: true
       schema: {type: string}
+      description: "NIK (16 digit), NoKK (16 digit), atau Kode Desa MFD"
 
   schemas:
     SchemaRequest:
       type: object
       properties:
-        fields:
-          type: array
-          items: {type: string}
-          example: ["nik", "nama", "jenjang", "ipk"]
-        owner: {type: string, example: "steward-pendidikan"}
-        version: {type: integer, example: 1}
+        domain: {type: string}
+        definition: 
+          type: object
+          description: "JSON Rules/Aturan Metadata"
