@@ -2,7 +2,6 @@ package storage
 
 import (
 	"ketenagakerjaan/models"
-
 	"gorm.io/gorm"
 )
 
@@ -10,12 +9,16 @@ type KetenagakerjaanStorage struct {
 	DB *gorm.DB
 }
 
+// GetLatestByNIK mengambil record terbaru berdasarkan NIK
 func (s *KetenagakerjaanStorage) GetLatestByNIK(nik string) (*models.RekamKetenagakerjaan, error) {
 	var rk models.RekamKetenagakerjaan
-	err := s.DB.Where("nomor_induk_kependudukan = ? AND is_deleted = ?", nik, false).Order("version desc").First(&rk).Error
+	err := s.DB.Where("nomor_induk_kependudukan = ? AND is_deleted = ?", nik, false).
+		Order("version desc").
+		First(&rk).Error
 	return &rk, err
 }
 
+// Create menyimpan record baru
 func (s *KetenagakerjaanStorage) Create(rk *models.RekamKetenagakerjaan) error {
 	return s.DB.Create(rk).Error
 }
@@ -28,8 +31,15 @@ func (s *KetenagakerjaanStorage) CountByNIK(nik string) (int64, error) {
 
 func (s *KetenagakerjaanStorage) GetFetchWithFields(fields []string) ([]models.RekamKetenagakerjaan, error) {
 	var results []models.RekamKetenagakerjaan
-	subQuery := s.DB.Model(&models.RekamKetenagakerjaan{}).Select("MAX(id)").Group("nomor_induk_kependudukan")
-	query := s.DB.Where("id IN (?) AND is_deleted = ?", subQuery, false)
+	
+	// Cari absolute ID tertinggi dari tiap NIK
+	subQuery := s.DB.Model(&models.RekamKetenagakerjaan{}).
+		Select("MAX(id)").
+		Where("is_deleted = ?", false).
+		Group("nomor_induk_kependudukan")
+	
+	// Filter ID tertinggi tersebut. Kalau dia terhapus, NIK-nya tidak akan tampil sama sekali
+	query := s.DB.Where("id IN (?)", subQuery)
 
 	if len(fields) > 0 && fields[0] != "" {
 		query = query.Select(fields)
@@ -40,7 +50,8 @@ func (s *KetenagakerjaanStorage) GetFetchWithFields(fields []string) ([]models.R
 
 func (s *KetenagakerjaanStorage) GetDetailWithFields(nik string, fields []string) (*models.RekamKetenagakerjaan, error) {
 	var result models.RekamKetenagakerjaan
-	query := s.DB.Model(&models.RekamKetenagakerjaan{}).Where("nomor_induk_kependudukan = ?", nik)
+	query := s.DB.Model(&models.RekamKetenagakerjaan{}).
+		Where("nomor_induk_kependudukan = ? AND is_deleted = ?", nik, false)
 
 	if len(fields) > 0 && fields[0] != "" {
 		query = query.Select(fields)
@@ -49,32 +60,34 @@ func (s *KetenagakerjaanStorage) GetDetailWithFields(nik string, fields []string
 	return &result, err
 }
 
-func (s *KetenagakerjaanStorage) SoftDelete(id string) error {
-	return s.DB.Model(&models.RekamKetenagakerjaan{}).Where("id = ?", id).Update("is_deleted", true).Error
+func (s *KetenagakerjaanStorage) SoftDelete(identifier string) error {
+	if len(identifier) == 16 {
+		return s.DB.Model(&models.RekamKetenagakerjaan{}).Where("nomor_induk_kependudukan = ?", identifier).Update("is_deleted", true).Error
+	}
+	return s.DB.Model(&models.RekamKetenagakerjaan{}).Where("id = ?", identifier).Update("is_deleted", true).Error
 }
 
 // GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
 func (s *KetenagakerjaanStorage) GetAuditSamples(limit int) ([]models.RekamKetenagakerjaan, error) {
-    var results []models.RekamKetenagakerjaan
-    
-    // Query dengan penambahan RANDOM() dan limit
-    query := `
-        SELECT k.* FROM rekam_ketenagakerjaans k
-        INNER JOIN (
-            SELECT nomor_induk_kependudukan, MAX(version) as max_ver
-            FROM rekam_ketenagakerjaans
-            GROUP BY nomor_induk_kependudukan
-        ) grouped_k 
-        ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan 
-        AND k.version = grouped_k.max_ver
-        WHERE k.audit_status = 'PENDING'
-        ORDER BY RANDOM()
-        LIMIT ?
-    `
-    
-    // Oper limit ke Raw query
-    err := s.DB.Raw(query, limit).Scan(&results).Error
-    return results, err
+	var results []models.RekamKetenagakerjaan
+	
+	query := `
+		SELECT k.* FROM rekam_ketenagakerjaans k
+		INNER JOIN (
+			SELECT nomor_induk_kependudukan, MAX(version) as max_ver
+			FROM rekam_ketenagakerjaans
+			WHERE is_deleted = false
+			GROUP BY nomor_induk_kependudukan
+		) grouped_k 
+		ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan 
+		AND k.version = grouped_k.max_ver
+		WHERE k.audit_status = 'PENDING'
+		ORDER BY RANDOM()
+		LIMIT ?
+	`
+	
+	err := s.DB.Raw(query, limit).Scan(&results).Error
+	return results, err
 }
 
 func (s *KetenagakerjaanStorage) UpdateBulkAuditDecision(nikList []string, verdictText string, bonus float64) error {

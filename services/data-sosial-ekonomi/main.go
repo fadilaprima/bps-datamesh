@@ -33,7 +33,7 @@ var meshRegistry = []DomainInfo{
 	{Name: "Energi", BaseURL: "http://localhost:8088", Owner: "ESDM", Path: "energi", JoinKey: "NoKK"},
 }
 
-// 2. Stitching Data
+// Stitching Data
 func fetchFromDomain(url string, target interface{}) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(url)
@@ -50,7 +50,7 @@ func fetchFromDomain(url string, target interface{}) error {
 	return json.Unmarshal(body, target)
 }
 
-// 3. Mesin Dinamis: Filter Variabel
+// Filter Variabel
 func applyDynamicFields(data map[string]interface{}, fields string) map[string]interface{} {
 	if fields == "" {
 		return data
@@ -168,7 +168,7 @@ func main() {
 		return c.JSON(applyDynamicFields(profile, fields))
 	})
 
-	// 3. ENDPOINT DAFTAR DOMAIN (Mesh Registry Management)
+	// ENDPOINT DAFTAR DOMAIN (Mesh Registry Management)
 	api.Get("/registry", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"mesh_status":    "Active",

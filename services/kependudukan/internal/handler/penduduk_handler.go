@@ -24,15 +24,19 @@ type PendudukHandler struct {
 	Service app.PendudukService
 }
 
-// A. METADATA & SCHEMA MANAGEMENT
+// ==========================================
+// 1. METADATA & SCHEMA MANAGEMENT
+// ==========================================
+
 func (h *PendudukHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"})
 	}
-
+	
 	domain := c.Params("domain", "penduduk")
-
+	
+	//Nonaktifkan skema yang sedang berjalan menjadi ARCHIVED
 	h.Service.Storage.DB.Model(&models.Schema{}).
 		Where("domain = ? AND status = ?", domain, "ACTIVE").
 		Update("status", "ARCHIVED")
@@ -47,7 +51,7 @@ func (h *PendudukHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	input.CreatedAt = time.Now()
 
 	if err := h.Service.Storage.DB.Create(&input).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Gagal simpan skema kependudukan"})
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal simpan skema"})
 	}
 	return c.Status(201).JSON(input)
 }
@@ -55,17 +59,22 @@ func (h *PendudukHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 func (h *PendudukHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	var schema models.Schema
 	domain := c.Params("domain", "penduduk")
+	
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", domain, "ACTIVE").Order("version desc").First(&schema).Error; err != nil {
-		return c.Status(404).JSON(fiber.Map{"error": "Skema kependudukan aktif tidak ditemukan"})
+		return c.Status(404).JSON(fiber.Map{"error": "Skema aktif tidak ditemukan"})
 	}
 	return c.JSON(schema)
 }
 
-// B. DATA INGESTION (HYBRID DYNAMIC - REFLECT ENGINE)
+// ==========================================
+// 2. DATA INGESTION PIPELINE (HYBRID)
+// ==========================================
+
 func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
+	// A. Cek Kesiapan Skema Aktif 
 	var activeSchema models.Schema
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "penduduk", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Metadata kependudukan belum siap, ingest ditolak"})
+		return c.Status(500).JSON(fiber.Map{"error": "Metadata belum siap"})
 	}
 
 	fileHeader, err := c.FormFile("document")
@@ -73,7 +82,8 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "File dokumen tidak ditemukan"})
 	}
 
-	sourceIDStr := c.FormValue("source_id", "3") // Default: 3 (LAINNYA)
+	// B. Konfigurasi Sumber Data & Skor Awal 
+	sourceIDStr := c.FormValue("source_id", "3")
 	sourceIDInt, _ := strconv.Atoi(sourceIDStr)
 
 	sourceName := "LAINNYA"
@@ -87,7 +97,7 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 			trustScore += 20.0
 		}
 	} else {
-		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (KEMENDAGRI), 3 (LAINNYA)"})
+		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid"})
 	}
 
 	refDate, _ := time.Parse("2006-01-02", c.FormValue("reference_date", time.Now().Format("2006-01-02")))
@@ -97,14 +107,14 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 	var dataList []models.Penduduk
 	filename := strings.ToLower(fileHeader.Filename)
 
-	// 3. PARSING LOGIC DENGAN REFLECT
+	// C. Routing Parsing Berdasarkan Ekstensi 
 	if strings.HasSuffix(filename, ".csv") {
+		// [PARSER 1] CSV Handling dengan Reflect Engine
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
 		if len(records) < 2 {
 			return c.Status(400).JSON(fiber.Map{"error": "CSV kosong"})
 		}
-
 		headers := records[0]
 		pendudukType := reflect.TypeOf(models.Penduduk{})
 
@@ -127,7 +137,7 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 					field := pendudukType.Field(fIdx)
 					jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
 
-					// Toleransi typo legacy (jika headers 'nik' atau 'jml_anggota')
+					// Normalisasi field legacy
 					if key == "nik" {
 						key = "nomor_induk_kependudukan"
 					}
@@ -168,10 +178,14 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 			dataList = append(dataList, p)
 		}
 	} else if strings.HasSuffix(filename, ".parquet") {
+		// Parquet Handling
 		tmpPath := "temp_penduduk_" + uuid.New().String() + ".parquet"
 		fw, _ := os.Create(tmpPath)
 		io.Copy(fw, file)
 		fw.Close()
+
+		// file temporary langsung dihapus
+		defer os.Remove(tmpPath)
 
 		fr, _ := local.NewLocalFileReader(tmpPath)
 		pr, errP := reader.NewParquetReader(fr, new(models.Penduduk), 4)
@@ -181,14 +195,24 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 			pr.Read(&res)
 			pr.ReadStop()
 			fr.Close()
-			os.Remove(tmpPath)
 			dataList = res
 		}
 	} else {
+		//  JSON Handling
 		body, _ := io.ReadAll(file)
-		json.Unmarshal(body, &dataList)
+		if errJson := json.Unmarshal(body, &dataList); errJson != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Format JSON gagal diparsing"})
+		}
+		
+		// 
+		for i := range dataList {
+			if dataList[i].ReferenceDate.IsZero() {
+				dataList[i].ReferenceDate = refDate
+			}
+		}
 	}
 
+	// D. Eksekusi Validasi & Simpan
 	success, fail := 0, 0
 	var errorLogs []string
 
@@ -202,12 +226,14 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 			dataList[i].TrustScore = trustScore
 		}
 
+		// Lapisan 1: Validasi Struktur Metadata
 		if ok, msg := h.Service.ValidatePendudukMetadata(dataList[i], activeSchema.Definition); !ok {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NIK %s: %s", dataList[i].NIK, msg))
 			continue
 		}
 
+		// Lapisan 2: Validasi Bisnis 
 		if _, err := h.Service.ProcessIngestion(dataList[i]); err != nil {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NIK %s: %v", dataList[i].NIK, err))
@@ -225,13 +251,17 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 	})
 }
 
+// ==========================================
+// 3. MONITORING & TRACKING
+// ==========================================
+
 func (h *PendudukHandler) GetValidationStatus(c *fiber.Ctx) error {
 	result, err := h.Service.Storage.GetLatestByNIK(c.Params("nik"))
 	status := "PENDING"
 	if err == nil && result != nil {
 		status = result.AuditStatus
 	}
-	return c.JSON(fiber.Map{"nik": c.Params("nik"), "status": status, "schema": "DTSEN-PENDDK-ACTIVE"})
+	return c.JSON(fiber.Map{"nik": c.Params("nik"), "status": status})
 }
 
 func (h *PendudukHandler) GetScoring(c *fiber.Ctx) error {
@@ -240,9 +270,10 @@ func (h *PendudukHandler) GetScoring(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": "Data tidak ditemukan"})
 	}
 	return c.JSON(fiber.Map{
-		"nik": result.NIK, "trust_score": result.TrustScore,
-		"is_walidata": result.IsWaliData, "audit_status": result.AuditStatus,
-		"quality_label": "Kalkulasi: 60(Sistem) + 20(Sumber) + 20(Audit)",
+		"nik":          result.NIK,
+		"trust_score":  result.TrustScore,
+		"is_walidata":  result.IsWaliData,
+		"audit_status": result.AuditStatus,
 	})
 }
 
@@ -255,12 +286,17 @@ func (h *PendudukHandler) GetProgress(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"nik": c.Params("nik"), "status": status, "progress": "100%"})
 }
 
+// ==========================================
+// 4. DATASET MAINTENANCE (CRUD)
+// ==========================================
+
 func (h *PendudukHandler) GetAllDatasets(c *fiber.Ctx) error {
 	fields := c.Query("fields")
 	var fieldList []string
 	if fields != "" {
 		fieldList = strings.Split(fields, ",")
 	}
+	
 	results, err := h.Service.Storage.GetFetchWithFields(fieldList)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data"})
@@ -274,6 +310,7 @@ func (h *PendudukHandler) GetDatasetDetail(c *fiber.Ctx) error {
 	if fields != "" {
 		fieldList = strings.Split(fields, ",")
 	}
+	
 	result, err := h.Service.Storage.GetDetailWithFields(c.Params("nik"), fieldList)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Data tidak ditemukan"})
@@ -286,11 +323,12 @@ func (h *PendudukHandler) UpdateDataset(c *fiber.Ctx) error {
 	if err := c.BodyParser(&payload); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
 	}
+	
 	version, err := h.Service.ProcessManualUpdate(c.Params("nik"), payload)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
-	return c.JSON(fiber.Map{"message": "Versi baru dibuat, status kembali PENDING", "version": version})
+	return c.JSON(fiber.Map{"message": "Versi baru dibuat", "version": version})
 }
 
 func (h *PendudukHandler) SoftDeleteDataset(c *fiber.Ctx) error {
@@ -300,24 +338,25 @@ func (h *PendudukHandler) SoftDeleteDataset(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "Data penduduk berhasil dinonaktifkan (Soft Delete)"})
 }
 
-func (h *PendudukHandler) GetAuditSamples(c *fiber.Ctx) error {
-    // 1. Ambil limit dari query param, default ke 10 jika tidak diisi
-    limit, err := strconv.Atoi(c.Query("limit", "10"))
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"})
-    }
+// ==========================================
+// 5. GOVERNANCE & AUDIT LOGIC
+// ==========================================
 
-    // 2. Oper 'limit' ke Service
-    results, err := h.Service.Storage.GetAuditSamples(limit) 
-    if err != nil {
-        return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"})
-    }
-    
-    if len(results) == 0 {
-        return c.JSON(fiber.Map{"message": "Tidak ada data kependudukan terbaru yang perlu diaudit."})
-    }
-    
-    return c.JSON(results)
+func (h *PendudukHandler) GetAuditSamples(c *fiber.Ctx) error {
+	limit, err := strconv.Atoi(c.Query("limit", "10"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Limit angka"})
+	}
+	
+	results, err := h.Service.Storage.GetAuditSamples(limit)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal audit"})
+	}
+	
+	if len(results) == 0 {
+		return c.JSON(fiber.Map{"message": "Tidak ada audit terbaru"})
+	}
+	return c.JSON(results)
 }
 
 func (h *PendudukHandler) SubmitAuditDecision(c *fiber.Ctx) error {
@@ -328,10 +367,7 @@ func (h *PendudukHandler) SubmitAuditDecision(c *fiber.Ctx) error {
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"})
 	}
-	if len(input.NIK) == 0 {
-		return c.Status(400).JSON(fiber.Map{"error": "List NIK tidak boleh kosong"})
-	}
-
+	
 	verdictText, err := h.Service.ProcessAuditDecision(input.NIK, input.Verdict)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})

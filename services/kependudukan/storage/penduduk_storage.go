@@ -24,29 +24,34 @@ func (s *PendudukStorage) Create(p *models.Penduduk) error {
 	return s.DB.Create(p).Error
 }
 
-// CountByNIK menghitung progres
 func (s *PendudukStorage) CountByNIK(nik string) (int64, error) {
 	var count int64
 	err := s.DB.Model(&models.Penduduk{}).Where("nomor_induk_kependudukan = ?", nik).Count(&count).Error
 	return count, err
 }
 
-// GetBySubmission mengambil data berdasarkan ID pengirim
 func (s *PendudukStorage) GetBySubmission(sourceID string) ([]models.Penduduk, error) {
 	var results []models.Penduduk
 	err := s.DB.Where("source_id = ? AND is_deleted = ?", sourceID, false).Find(&results).Error
 	return results, err
 }
 
-// SoftDelete menandai data sebagai terhapus
-func (s *PendudukStorage) SoftDelete(id string) error {
-	return s.DB.Model(&models.Penduduk{}).Where("id = ?", id).Update("is_deleted", true).Error
+// SoftDelete bisa menerima NIK (16 digit) untuk hapus semua versi, atau ID spesifik
+func (s *PendudukStorage) SoftDelete(identifier string) error {
+	if len(identifier) == 16 {
+		return s.DB.Model(&models.Penduduk{}).Where("nomor_induk_kependudukan = ?", identifier).Update("is_deleted", true).Error
+	}
+	return s.DB.Model(&models.Penduduk{}).Where("id = ?", identifier).Update("is_deleted", true).Error
 }
 
-// GetFetchWithFields mengambil dataset keseluruhan
+
 func (s *PendudukStorage) GetFetchWithFields(fields []string) ([]models.Penduduk, error) {
 	var results []models.Penduduk
+	
+	// Cari absolute ID tertinggi dari tiap NIK
 	subQuery := s.DB.Model(&models.Penduduk{}).Select("MAX(id)").Group("nomor_induk_kependudukan")
+	
+	// Filter ID tertinggi tersebut.Jika (is_deleted = true), NIK-nya tidak akan tampil sama sekali
 	query := s.DB.Where("id IN (?) AND is_deleted = ?", subQuery, false)
 
 	if len(fields) > 0 && fields[0] != "" {
@@ -56,10 +61,10 @@ func (s *PendudukStorage) GetFetchWithFields(fields []string) ([]models.Penduduk
 	return results, err
 }
 
-// GetDetailWithFields mengambil data spesifik
 func (s *PendudukStorage) GetDetailWithFields(nik string, fields []string) (*models.Penduduk, error) {
 	var result models.Penduduk
-	query := s.DB.Model(&models.Penduduk{}).Where("nomor_induk_kependudukan = ?", nik)
+	query := s.DB.Model(&models.Penduduk{}).
+		Where("nomor_induk_kependudukan = ? AND is_deleted = ?", nik, false)
 
 	if len(fields) > 0 && fields[0] != "" {
 		query = query.Select(fields)
@@ -68,40 +73,34 @@ func (s *PendudukStorage) GetDetailWithFields(nik string, fields []string) (*mod
 	return &result, err
 }
 
-// UpdateManual melakukan pembaruan parsial jika ada koreksi manual
 func (s *PendudukStorage) UpdateManual(id string, data map[string]interface{}) error {
 	return s.DB.Model(&models.Penduduk{}).Where("id = ?", id).Updates(data).Error
 }
 
-// UpdateAuditStatus menyimpan keputusan audir
 func (s *PendudukStorage) UpdateAuditStatus(id string, status string) error {
 	return s.DB.Model(&models.Penduduk{}).Where("id = ?", id).Update("audit_status", status).Error
 }
 
-// GetAuditSamples mengambil data versi tertinggi yang berstatus PENDING
 func (s *PendudukStorage) GetAuditSamples(limit int) ([]models.Penduduk, error) {
 	var results []models.Penduduk
 
-	// Kita gabungkan logika MAX(version) dengan limit dan random
 	query := `
-        SELECT k.* FROM penduduks k
-        INNER JOIN (
-            SELECT nomor_induk_kependudukan, MAX(version) as max_ver
-            FROM penduduks
-            GROUP BY nomor_induk_kependudukan
-        ) grouped_k 
-        ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan
-        AND k.version = grouped_k.max_ver
-        WHERE k.audit_status = 'PENDING'
-        ORDER BY RANDOM()
-        LIMIT ?
-    `
-
+		SELECT k.* FROM penduduks k
+		INNER JOIN (
+			SELECT nomor_induk_kependudukan, MAX(version) as max_ver
+			FROM penduduks
+			GROUP BY nomor_induk_kependudukan
+		) grouped_k 
+		ON k.nomor_induk_kependudukan = grouped_k.nomor_induk_kependudukan
+		AND k.version = grouped_k.max_ver
+		WHERE k.audit_status = 'PENDING' AND k.is_deleted = false
+		ORDER BY RANDOM()
+		LIMIT ?
+	`
 	err := s.DB.Raw(query, limit).Scan(&results).Error
 	return results, err
 }
 
-// UpdateBulkAuditDecision update audit kependudukan massal
 func (s *PendudukStorage) UpdateBulkAuditDecision(nikList []string, verdictText string, bonus float64) error {
 	return s.DB.Model(&models.Penduduk{}).
 		Where("nomor_induk_kependudukan IN ? AND audit_status = ?", nikList, "PENDING").

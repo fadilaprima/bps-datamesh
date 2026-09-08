@@ -2,7 +2,6 @@ package storage
 
 import (
 	"hunian/models"
-
 	"gorm.io/gorm"
 )
 
@@ -10,12 +9,16 @@ type HunianStorage struct {
 	DB *gorm.DB
 }
 
+// GetLatestByNoKK mengambil record terbaru berdasarkan NoKK (Keluarga)
 func (s *HunianStorage) GetLatestByNoKK(noKK string) (*models.RekamHunian, error) {
 	var rh models.RekamHunian
-	err := s.DB.Where("nomor_kartu_keluarga = ? AND is_deleted = ?", noKK, false).Order("version desc").First(&rh).Error
+	err := s.DB.Where("nomor_kartu_keluarga = ? AND is_deleted = ?", noKK, false).
+		Order("version desc").
+		First(&rh).Error
 	return &rh, err
 }
 
+// Create menyimpan record baru (SCD Type 2)
 func (s *HunianStorage) Create(rh *models.RekamHunian) error {
 	return s.DB.Create(rh).Error
 }
@@ -34,8 +37,15 @@ func (s *HunianStorage) GetBySubmission(subID string) ([]models.RekamHunian, err
 
 func (s *HunianStorage) GetFetchWithFields(fields []string) ([]models.RekamHunian, error) {
 	var results []models.RekamHunian
-	subQuery := s.DB.Model(&models.RekamHunian{}).Select("MAX(id)").Group("nomor_kartu_keluarga")
-	query := s.DB.Where("id IN (?) AND is_deleted = ?", subQuery, false)
+	
+	// Cari absolute ID tertinggi dari tiap NoKK
+	subQuery := s.DB.Model(&models.RekamHunian{}).
+		Select("MAX(id)").
+		Where("is_deleted = ?", false).
+		Group("nomor_kartu_keluarga")
+	
+	// Filter ID tertinggi tersebut
+	query := s.DB.Where("id IN (?)", subQuery)
 
 	if len(fields) > 0 && fields[0] != "" {
 		query = query.Select(fields)
@@ -46,7 +56,8 @@ func (s *HunianStorage) GetFetchWithFields(fields []string) ([]models.RekamHunia
 
 func (s *HunianStorage) GetDetailWithFields(noKK string, fields []string) (*models.RekamHunian, error) {
 	var result models.RekamHunian
-	query := s.DB.Model(&models.RekamHunian{}).Where("nomor_kartu_keluarga = ?", noKK)
+	query := s.DB.Model(&models.RekamHunian{}).
+		Where("nomor_kartu_keluarga = ? AND is_deleted = ?", noKK, false)
 
 	if len(fields) > 0 && fields[0] != "" {
 		query = query.Select(fields)
@@ -55,32 +66,34 @@ func (s *HunianStorage) GetDetailWithFields(noKK string, fields []string) (*mode
 	return &result, err
 }
 
-func (s *HunianStorage) SoftDelete(id string) error {
-	return s.DB.Model(&models.RekamHunian{}).Where("id = ?", id).Update("is_deleted", true).Error
+func (s *HunianStorage) SoftDelete(identifier string) error {
+	if len(identifier) == 16 {
+		return s.DB.Model(&models.RekamHunian{}).Where("nomor_kartu_keluarga = ?", identifier).Update("is_deleted", true).Error
+	}
+	return s.DB.Model(&models.RekamHunian{}).Where("id = ?", identifier).Update("is_deleted", true).Error
 }
 
 // GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
 func (s *HunianStorage) GetAuditSamples(limit int) ([]models.RekamHunian, error) {
-    var results []models.RekamHunian
-    
-    // Query dengan penambahan RANDOM() dan limit
-    query := `
-        SELECT k.* FROM rekam_hunians k
-        INNER JOIN (
-            SELECT nomor_kartu_keluarga, MAX(version) as max_ver
-            FROM rekam_hunians
-            GROUP BY nomor_kartu_keluarga
-        ) grouped_k 
-        ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
-        AND k.version = grouped_k.max_ver
-        WHERE k.audit_status = 'PENDING'
-        ORDER BY RANDOM()
-        LIMIT ?
-    `
-    
-    // Oper limit ke Raw query
-    err := s.DB.Raw(query, limit).Scan(&results).Error
-    return results, err
+	var results []models.RekamHunian
+	
+	query := `
+		SELECT k.* FROM rekam_hunians k
+		INNER JOIN (
+			SELECT nomor_kartu_keluarga, MAX(version) as max_ver
+			FROM rekam_hunians
+			WHERE is_deleted = false
+			GROUP BY nomor_kartu_keluarga
+		) grouped_k 
+		ON k.nomor_kartu_keluarga = grouped_k.nomor_kartu_keluarga 
+		AND k.version = grouped_k.max_ver
+		WHERE k.audit_status = 'PENDING'
+		ORDER BY RANDOM()
+		LIMIT ?
+	`
+	
+	err := s.DB.Raw(query, limit).Scan(&results).Error
+	return results, err
 }
 
 func (s *HunianStorage) UpdateBulkAuditDecision(nokkList []string, verdictText string, bonus float64) error {

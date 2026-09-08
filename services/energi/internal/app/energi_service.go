@@ -39,53 +39,45 @@ var AuditMap = map[int]string{
 }
 
 // ==========================================
-// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// 1. FUNGSI VALIDASI INTERNAL (HARD FAIL)
 // ==========================================
-func (s *EnergiService) ValidateInternalEnergi(k models.RekamEnergi) error {
-	// Contoh konversi daya terpasang jika berbentuk string (misal "900", "1300")
-	// Rule internal: Jika ID pelanggan PLN terisi, daya terpasang tidak boleh kosong / tidak logis
+func (s *EnergiService) ValidateInternalEnergi(k *models.RekamEnergi) error {
 	if strings.TrimSpace(k.IDPelangganPLN) != "" && strings.TrimSpace(k.DayaTerpasang) == "" {
-		return fmt.Errorf("gagal validasi internal: memiliki ID pelanggan PLN tetapi daya terpasang kosong")
+		return fmt.Errorf("memiliki ID pelanggan PLN tetapi daya terpasang kosong")
 	}
 
 	return nil
 }
 
 // ==========================================
-// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// 2. FUNGSI VALIDASI SILANG (HYBRID)
 // ==========================================
-func (s *EnergiService) ValidateCrossDomainAPI(k models.RekamEnergi) error {
+func (s *EnergiService) ValidateCrossDomainAPI(k *models.RekamEnergi) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// Cek ke Domain Hunian berdasarkan NoKK untuk memvalidasi sumber penerangan
+	// A. Domain Hunian 
 	baseURLHunian := os.Getenv("URL_HUNIAN")
-	targetURL := fmt.Sprintf("%s/api/v1/domains/hunian/datasets/%s", baseURLHunian, k.NoKK)
-	
-	resp, err := client.Get(targetURL)
-
-	// PENAMBAHAN: Blok fail-closed jika koneksi ke domain lain gagal
-	if err != nil {
-		return fmt.Errorf("gagal menghubungi service hunian untuk validasi silang (pastikan service menyala): %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 200 {
-		body, _ := io.ReadAll(resp.Body)
-
-		// PERBAIKAN: Gunakan Object tunggal & Anti-Silent Failure
-		var result map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil {
-			sumberPenerangan := fmt.Sprintf("%v", result["sumber_penerangan_utama"])
-
-			// Parse daya terpasang ke integer untuk pengecekan
-			dayaInt, _ := strconv.Atoi(strings.TrimSuffix(strings.ReplaceAll(k.DayaTerpasang, " watt", ""), " watt"))
-
-			// Rule: sumber_penerangan_utama = Bukan Listrik dan daya_terpasang > 0
-			if sumberPenerangan == "Bukan Listrik" && dayaInt > 0 {
-				return fmt.Errorf("gagal validasi lintas domain (hunian): sumber penerangan utama rumah tangga tercatat 'Bukan Listrik' tetapi memiliki daya terpasang > 0")
-			}
+	if baseURLHunian != "" {
+		targetURL := fmt.Sprintf("%s/api/v1/domains/hunian/datasets/%s", baseURLHunian, k.NoKK)
+		resp, err := client.Get(targetURL)
+		
+		if err != nil {
+			fmt.Printf("[WARNING] Servis Hunian down, NoKK %s tidak tervalidasi penuh. Trust Score -10\n", k.NoKK)
+			k.TrustScore -= 10.0
 		} else {
-			return fmt.Errorf("gagal parsing JSON dari service hunian (Format Beda): %v", errJson)
+			defer resp.Body.Close()
+			if resp.StatusCode == 200 {
+				body, _ := io.ReadAll(resp.Body)
+				var result map[string]interface{}
+				
+				if errJson := json.Unmarshal(body, &result); errJson == nil {
+					sumberPenerangan := fmt.Sprintf("%v", result["sumber_penerangan_utama"])
+					dayaInt, _ := strconv.Atoi(strings.TrimSuffix(strings.ReplaceAll(k.DayaTerpasang, " watt", ""), " watt"))
+					if sumberPenerangan == "Bukan Listrik" && dayaInt > 0 {
+						return fmt.Errorf("ditolak: sumber penerangan utama rumah tangga tercatat 'Bukan Listrik' tetapi memiliki daya terpasang > 0")
+					}
+				}
+			}
 		}
 	}
 
@@ -93,7 +85,7 @@ func (s *EnergiService) ValidateCrossDomainAPI(k models.RekamEnergi) error {
 }
 
 // ==========================================
-// 3. METADATA VALIDATOR (DYNAMIC SCHEMA)
+// 3. METADATA VALIDATION (HARD FAIL)
 // ==========================================
 func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
@@ -102,9 +94,7 @@ func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition 
 	}
 
 	rules, ok := schemaMap["definition"].(map[string]interface{})
-	if !ok {
-		return true, ""
-	}
+	if !ok { return true, "" }
 
 	val := reflect.ValueOf(k)
 	typ := reflect.TypeOf(k)
@@ -113,20 +103,15 @@ func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
-		if jsonTag == "" || jsonTag == "-" {
-			continue
-		}
-
+		if jsonTag == "" || jsonTag == "-" { continue }
+		
 		fixedFields[jsonTag] = true
 		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface())
 
 		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
-			// A. Cek Mandatory (Required)
 			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
-				return false, fmt.Sprintf("Atribut energi '%s' wajib diisi (Mandatory)", jsonTag)
+				return false, fmt.Sprintf("Atribut '%s' wajib diisi (Mandatory)", jsonTag)
 			}
-
-			// B. Cek Panjang Karakter (Length) - Khusus Nomor KK atau ID PLN
 			if lengthVal, ok := r["length"].(float64); ok {
 				if fieldValue != "" && len(fieldValue) != int(lengthVal) {
 					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit", jsonTag, int(lengthVal))
@@ -135,20 +120,17 @@ func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition 
 		}
 	}
 
-	// 3. VALIDASI ATRIBUT TAMBAHAN (AdditionalInfo)
 	var extra map[string]interface{}
 	json.Unmarshal(k.AdditionalInfo, &extra)
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
-		if !ok {
-			continue
-		}
+		if !ok { continue }
 
 		if r["required"] == true {
 			if !fixedFields[field] {
 				if valData, exists := extra[field]; !exists || fmt.Sprintf("%v", valData) == "" {
-					return false, fmt.Sprintf("Atribut tambahan energi '%s' wajib diisi", field)
+					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi", field)
 				}
 			}
 		}
@@ -158,30 +140,30 @@ func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition 
 }
 
 // ==========================================
-// 4. INGESTION PIPELINE (SCD TYPE 2)
+// 4. INGESTION PIPELINE (SCD Type 2)
 // ==========================================
 func (s *EnergiService) ProcessIngestion(k models.RekamEnergi) (string, error) {
-	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
-	if err := s.ValidateInternalEnergi(k); err != nil {
-		return "Error Validation", err
+	if err := s.ValidateInternalEnergi(&k); err != nil {
+		return "Error Internal Logic", err
 	}
 
-	if err := s.ValidateCrossDomainAPI(k); err != nil {
-		return "Error Cross-Validation", err
+	if err := s.ValidateCrossDomainAPI(&k); err != nil {
+		return "Error Cross-Domain Logic", err
 	}
-	// --- AKHIR BLOK VALIDASI ---
 
 	last, err := s.Storage.GetLatestByNoKK(k.NoKK)
 
+	// Skenario A: Data Baru
 	if err != nil {
 		k.Version = 1
 		k.AuditStatus = "PENDING"
 		if errCreate := s.Storage.Create(&k); errCreate != nil {
-			return "Error", errCreate
+			return "Error Database", errCreate
 		}
-		return "Sukses v1 (Initial Entry)", nil
+		return "Sukses v1 (Masuk Data Mesh)", nil
 	}
 
+	// Skenario B: Update Data
 	isNewer := k.ReferenceDate.After(last.ReferenceDate)
 	isHigherAuthority := k.ReferenceDate.Equal(last.ReferenceDate) && k.IsWaliData && !last.IsWaliData
 
@@ -191,12 +173,12 @@ func (s *EnergiService) ProcessIngestion(k models.RekamEnergi) (string, error) {
 		k.AuditStatus = "PENDING"
 
 		if errCreate := s.Storage.Create(&k); errCreate != nil {
-			return "Error", errCreate
+			return "Error Database", errCreate
 		}
-		return fmt.Sprintf("Sukses v%d (Energi Updated)", k.Version), nil
+		return fmt.Sprintf("Sukses v%d (Update)", k.Version), nil
 	}
 
-	return "Abaikan", fmt.Errorf("data energi yang dikirim usang")
+	return "Abaikan", fmt.Errorf("data usang atau otoritas lebih rendah")
 }
 
 // ==========================================
@@ -213,11 +195,7 @@ func (s *EnergiService) ProcessManualUpdate(nokk string, newData models.RekamEne
 	newData.AuditStatus = "PENDING"
 	newData.UpdatedAt = time.Now()
 
-	if newData.IsWaliData {
-		newData.TrustScore = 80.0
-	} else {
-		newData.TrustScore = 60.0
-	}
+	if newData.IsWaliData { newData.TrustScore = 80.0 } else { newData.TrustScore = 60.0 }
 
 	errCreate := s.Storage.Create(&newData)
 	return newData.Version, errCreate
@@ -229,9 +207,7 @@ func (s *EnergiService) ProcessAuditDecision(nokkList []string, verdict int) (st
 
 	if text, exists := AuditMap[verdict]; exists {
 		verdictText = text
-		if verdict == 1 {
-			bonus = 20.0
-		}
+		if verdict == 1 { bonus = 20.0 }
 	} else {
 		return "", fmt.Errorf("Verdict tidak valid")
 	}

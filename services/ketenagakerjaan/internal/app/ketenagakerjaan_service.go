@@ -38,80 +38,75 @@ var AuditMap = map[int]string{
 }
 
 // ==========================================
-// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// 1. FUNGSI VALIDASI INTERNAL (HARD FAIL)
 // ==========================================
-func (s *KetenagakerjaanService) ValidateInternalKetenagakerjaan(k models.RekamKetenagakerjaan) error {
-	// Konversi tipe data numerik jika diperlukan dari struct
+func (s *KetenagakerjaanService) ValidateInternalKetenagakerjaan(k *models.RekamKetenagakerjaan) error {
 	jumlahUsaha, _ := strconv.Atoi(fmt.Sprintf("%v", k.JumlahUsaha))
 	pekerjaDibayar, _ := strconv.Atoi(fmt.Sprintf("%v", k.JumlahPekerjaDibayar))
 	omzet, _ := strconv.ParseFloat(fmt.Sprintf("%v", k.OmzetUsahaUtama), 64)
 
-	// Rule: Status bekerja "Tidak" tetapi lapangan usaha utama terisi valid
+	// Rule 1: Status bekerja "Tidak" tetapi lapangan usaha utama terisi valid
 	if k.StatusBekerja == "Tidak" && strings.TrimSpace(k.LapanganUsahaPekerjaanUtama) != "" && k.LapanganUsahaPekerjaanUtama != "0" {
-		return fmt.Errorf("gagal validasi internal: status bekerja 'Tidak' tetapi lapangan usaha utama terisi")
+		return fmt.Errorf("status bekerja 'Tidak' tetapi lapangan usaha utama terisi")
 	}
 
-	// Rule: Kepemilikan usaha "Tidak" tetapi jumlah usaha > 0 atau omzet > 0
+	// Rule 2: Kepemilikan usaha "Tidak" tetapi jumlah usaha > 0 atau omzet > 0
 	if k.KepemilikanUsaha == "Tidak" && (jumlahUsaha > 0 || omzet > 0) {
-		return fmt.Errorf("gagal validasi internal: kepemilikan usaha 'Tidak' tetapi jumlah usaha atau omzet > 0")
+		return fmt.Errorf("kepemilikan usaha 'Tidak' tetapi jumlah usaha atau omzet > 0")
 	}
 
-	// Rule: Omzet < Rp 500.000 tetapi jumlah pekerja yang dibayar > 10 orang
+	// Rule 3: Omzet < Rp 500.000 tetapi mempekerjakan > 10 orang
 	if omzet > 0 && omzet < 500000 && pekerjaDibayar > 10 {
-		return fmt.Errorf("gagal validasi internal: omzet di bawah Rp 500.000 tetapi mempekerjakan lebih dari 10 orang")
+		return fmt.Errorf("omzet di bawah Rp 500.000 tetapi mempekerjakan lebih dari 10 orang")
 	}
 
-	// Rule: Status dalam pekerjaan utama = "Berusaha dibantu buruh dibayar", tetapi jumlah pekerja yang dibayar = 0
+	// Rule 4: Status berusaha dibantu buruh dibayar, tetapi jumlah pekerja dibayar = 0
 	if k.StatusDalamPekerjaanUtama == "Berusaha dibantu buruh dibayar" && pekerjaDibayar == 0 {
-		return fmt.Errorf("gagal validasi internal: status berusaha dibantu buruh dibayar, tetapi jumlah pekerja yang dibayar 0")
+		return fmt.Errorf("status berusaha dibantu buruh dibayar, tetapi jumlah pekerja yang dibayar 0")
 	}
 
-	// Rule: Status dalam pekerjaan utama = "Pekerja keluarga/tak dibayar", tetapi kepemilikan usaha = "Ya"
+	// Rule 5: Status pekerja tak dibayar, tetapi memiliki usaha
 	if k.StatusDalamPekerjaanUtama == "Pekerja keluarga/tak dibayar" && k.KepemilikanUsaha == "Ya" {
-		return fmt.Errorf("gagal validasi internal: pekerja tak dibayar tidak boleh berstatus memiliki usaha sendiri")
+		return fmt.Errorf("pekerja tak dibayar tidak boleh berstatus memiliki usaha sendiri")
 	}
 
 	return nil
 }
 
 // ==========================================
-// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// 2. FUNGSI VALIDASI SILANG (HYBRID)
 // ==========================================
-func (s *KetenagakerjaanService) ValidateCrossDomainAPI(k models.RekamKetenagakerjaan) error {
+func (s *KetenagakerjaanService) ValidateCrossDomainAPI(k *models.RekamKetenagakerjaan) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// Cek ke Domain Kependudukan untuk mendapatkan Tanggal Lahir / Umur
+	// A. Domain Kependudukan 
 	baseURLKependudukan := os.Getenv("URL_KEPENDUDUKAN")
-	targetURL := fmt.Sprintf("%s/api/v1/domains/penduduk/datasets/%s", baseURLKependudukan, k.NIK)
-
-	resp, err := client.Get(targetURL)
-	
-	// PENAMBAHAN: Blok fail-closed jika koneksi ke domain lain gagal
-	if err != nil {
-		return fmt.Errorf("gagal menghubungi service kependudukan untuk validasi silang (pastikan service menyala): %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 200 {
-		body, _ := io.ReadAll(resp.Body)
-
-		// PERBAIKAN: Gunakan Object tunggal, bukan Array
-		var result map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil {
-			tglLahir := fmt.Sprintf("%v", result["tanggal_lahir"])
-
-			umur := -1
-			if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
-				umur = int(time.Since(t).Hours() / 24 / 365.25)
-			}
-
-			// Rule: Umur < 10 Tahun dan (status_bekerja = Ya ATAU kepemilikan_usaha = Ya)
-			if umur >= 0 && umur < 10 && (k.StatusBekerja == "Ya" || k.KepemilikanUsaha == "Ya") {
-				return fmt.Errorf("gagal validasi lintas domain (kependudukan): umur di bawah 10 tahun tidak boleh berstatus Bekerja atau Memiliki Usaha")
-			}
+	if baseURLKependudukan != "" {
+		targetURL := fmt.Sprintf("%s/api/v1/domains/penduduk/datasets/%s", baseURLKependudukan, k.NIK)
+		resp, err := client.Get(targetURL)
+		
+		if err != nil {
+			fmt.Printf("[WARNING] Servis Kependudukan down, NIK %s tidak tervalidasi penuh. Trust Score -10\n", k.NIK)
+			k.TrustScore -= 10.0
 		} else {
-			// ANTI SILENT-FAILURE: Berteriak jika format JSON tidak sesuai!
-			return fmt.Errorf("gagal parsing JSON dari service kependudukan (Format Beda): %v", errJson)
+			defer resp.Body.Close()
+			if resp.StatusCode == 200 {
+				body, _ := io.ReadAll(resp.Body)
+				var result map[string]interface{}
+				
+				if errJson := json.Unmarshal(body, &result); errJson == nil {
+					tglLahir := fmt.Sprintf("%v", result["tanggal_lahir"])
+
+					umur := -1
+					if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
+						umur = int(time.Since(t).Hours() / 24 / 365.25)
+					}
+
+					if umur >= 0 && umur < 10 && (k.StatusBekerja == "Ya" || k.KepemilikanUsaha == "Ya") {
+						return fmt.Errorf("ditolak: umur di bawah 10 tahun tidak boleh berstatus Bekerja atau Memiliki Usaha")
+					}
+				}
+			}
 		}
 	}
 
@@ -119,9 +114,8 @@ func (s *KetenagakerjaanService) ValidateCrossDomainAPI(k models.RekamKetenagake
 }
 
 // ==========================================
-// 3. KODE BAWAAN METADATA VALIDATION
+// 3. METADATA VALIDATION (HARD FAIL)
 // ==========================================
-// ValidateKetenagakerjaanMetadata melakukan validasi isi data menggunakan Reflect Engine
 func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamKetenagakerjaan, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
 	if err := json.Unmarshal(definition, &schemaMap); err != nil {
@@ -144,21 +138,17 @@ func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamK
 		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
 
 		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
-			// A. Cek Mandatory
 			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
-				return false, fmt.Sprintf("Atribut ketenagakerjaan '%s' wajib diisi (Mandatory)", jsonTag)
+				return false, fmt.Sprintf("Atribut '%s' wajib diisi (Mandatory)", jsonTag)
 			}
-
-			// B. Cek Panjang Karakter (Length) 
 			if lengthVal, ok := r["length"].(float64); ok {
 				if fieldValue != "" && fieldValue != "0" && len(fieldValue) != int(lengthVal) {
-					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar", jsonTag, int(lengthVal))
+					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit", jsonTag, int(lengthVal))
 				}
 			}
 		}
 	}
 
-	// 3. VALIDASI ATRIBUT TAMBAHAN (AdditionalInfo)
 	var extra map[string]interface{}
 	json.Unmarshal(k.AdditionalInfo, &extra)
 
@@ -169,7 +159,7 @@ func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamK
 		if r["required"] == true {
 			if !fixedFields[field] {
 				if valData, exists := extra[field]; !exists || fmt.Sprintf("%v", valData) == "" {
-					return false, fmt.Sprintf("Atribut tambahan ketenagakerjaan '%s' wajib diisi", field)
+					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi", field)
 				}
 			}
 		}
@@ -181,31 +171,28 @@ func (s *KetenagakerjaanService) ValidateKetenagakerjaanMetadata(k models.RekamK
 // ==========================================
 // 4. INGESTION PIPELINE (SCD Type 2)
 // ==========================================
-// ProcessIngestion mengelola alur SCD Type 2
 func (s *KetenagakerjaanService) ProcessIngestion(k models.RekamKetenagakerjaan) (string, error) {
-	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
-	
-	// Tahap 1: Validasi Logika Internal
-	if err := s.ValidateInternalKetenagakerjaan(k); err != nil {
-		return "Error Validation", err
+	if err := s.ValidateInternalKetenagakerjaan(&k); err != nil {
+		return "Error Internal Logic", err
 	}
 
-	// Tahap 2: Validasi Logika Lintas Domain (API Call ke Kependudukan)
-	if err := s.ValidateCrossDomainAPI(k); err != nil {
-		return "Error Cross-Validation", err
+	if err := s.ValidateCrossDomainAPI(&k); err != nil {
+		return "Error Cross-Domain Logic", err
 	}
-
-	// --- AKHIR BLOK VALIDASI ---
 
 	last, err := s.Storage.GetLatestByNIK(k.NIK)
 
+	// Skenario A: Data Baru
 	if err != nil {
 		k.Version = 1
 		k.AuditStatus = "PENDING"
-		if errCreate := s.Storage.Create(&k); errCreate != nil { return "Error", errCreate }
-		return "Sukses v1 (Initial Entry)", nil
+		if errCreate := s.Storage.Create(&k); errCreate != nil {
+			return "Error Database", errCreate
+		}
+		return "Sukses v1 (Masuk Data Mesh)", nil
 	}
 
+	// Skenario B: Update Data
 	isNewer := k.ReferenceDate.After(last.ReferenceDate)
 	isHigherAuthority := k.ReferenceDate.Equal(last.ReferenceDate) && k.IsWaliData && !last.IsWaliData
 
@@ -214,11 +201,13 @@ func (s *KetenagakerjaanService) ProcessIngestion(k models.RekamKetenagakerjaan)
 		k.Version = last.Version + 1
 		k.AuditStatus = "PENDING" 
 
-		if errCreate := s.Storage.Create(&k); errCreate != nil { return "Error", errCreate }
-		return fmt.Sprintf("Sukses v%d (Data Updated)", k.Version), nil
+		if errCreate := s.Storage.Create(&k); errCreate != nil {
+			return "Error Database", errCreate
+		}
+		return fmt.Sprintf("Sukses v%d (Update)", k.Version), nil
 	}
 
-	return "Abaikan", fmt.Errorf("data ketenagakerjaan yang dikirim usang")
+	return "Abaikan", fmt.Errorf("data usang atau otoritas lebih rendah")
 }
 
 // ==========================================
@@ -235,7 +224,11 @@ func (s *KetenagakerjaanService) ProcessManualUpdate(nik string, newData models.
 	newData.AuditStatus = "PENDING"
 	newData.UpdatedAt = time.Now()
 
-	if newData.IsWaliData { newData.TrustScore = 80.0 } else { newData.TrustScore = 60.0 }
+	if newData.IsWaliData {
+		newData.TrustScore = 80.0
+	} else {
+		newData.TrustScore = 60.0
+	}
 
 	errCreate := s.Storage.Create(&newData)
 	return newData.Version, errCreate
@@ -249,7 +242,7 @@ func (s *KetenagakerjaanService) ProcessAuditDecision(nikList []string, verdict 
 		verdictText = text
 		if verdict == 1 { bonus = 20.0 }
 	} else {
-		return "", fmt.Errorf("Verdict tidak valid")
+		return "", fmt.Errorf("Verdict tidak valid. Gunakan 1 (VALID) atau 2 (INVALID)")
 	}
 
 	err := s.Storage.UpdateBulkAuditDecision(nikList, verdictText, bonus)

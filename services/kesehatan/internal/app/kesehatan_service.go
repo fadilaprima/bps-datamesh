@@ -16,82 +16,73 @@ import (
 	"gorm.io/datatypes"
 )
 
-// KesehatanService mengelola seluruh logika bisnis domain kesehatan dengan arsitektur Data Mesh
 type KesehatanService struct {
 	Storage storage.KesehatanStorage
 }
 
-// 1. DOMAIN OWNER
 type SourceConfig struct {
 	Name   string
 	IsWali bool
 }
 
-// Map Angka -> Konfigurasi Source
 var SourceMap = map[int]SourceConfig{
 	1: {Name: "BPS", IsWali: true},
-	2: {Name: "KEMENKES", IsWali: true},      // Wali Data
-	3: {Name: "BPJS_KESEHATAN", IsWali: true}, // Wali Data
-	4: {Name: "DINKES", IsWali: true},         // Kepanjangan Wali Data
+	2: {Name: "KEMENKES", IsWali: true},
+	3: {Name: "BPJS_KESEHATAN", IsWali: true},
+	4: {Name: "DINKES", IsWali: true},
 	5: {Name: "LAINNYA", IsWali: false},
 }
 
-// Map Angka -> Teks Verdict
 var AuditMap = map[int]string{
 	1: "VALID",
 	2: "INVALID",
 }
 
 // ==========================================
-// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// 1. FUNGSI VALIDASI INTERNAL (HARD FAIL)
 // ==========================================
-func (s *KesehatanService) ValidateInternalKesehatan(k models.RekamKesehatan) error {
-	// Contoh Rule Internal: Kondisi gizi balita/anak tidak boleh berisi teks ngawur atau tidak valid jika diisi
+func (s *KesehatanService) ValidateInternalKesehatan(k *models.RekamKesehatan) error {
 	if k.KondisiGizi != "" && k.KondisiGizi != "Kurang gizi (Wasting)" && k.KondisiGizi != "Kerdil (Stunting)" && k.KondisiGizi != "Tidak ada catatan" && k.KondisiGizi != "Tidak tahu" {
-		// Bisa disesuaikan dengan standar isian DTSEN kamu
-		return fmt.Errorf("gagal validasi internal: kondisi gizi diisi dengan nilai yang tidak dikenali")
+		return fmt.Errorf("kondisi gizi diisi dengan nilai yang tidak dikenali")
 	}
 
 	return nil
 }
 
 // ==========================================
-// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// 2. FUNGSI VALIDASI SILANG (HYBRID)
 // ==========================================
-func (s *KesehatanService) ValidateCrossDomainAPI(k models.RekamKesehatan) error {
+func (s *KesehatanService) ValidateCrossDomainAPI(k *models.RekamKesehatan) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// Cek ke Domain Kependudukan (Port 8081) untuk mendapatkan umur / tanggal lahir jika dibutuhkan
+	// A. Domain Kependudukan 
 	baseURLKependudukan := os.Getenv("URL_KEPENDUDUKAN")
-	targetURL := fmt.Sprintf("%s/api/v1/domains/penduduk/datasets/%s", baseURLKependudukan, k.NIK)
-	
-	resp, err := client.Get(targetURL)
-	
-	// PERBAIKAN 2: Fail-Closed jika koneksi terputus
-	if err != nil {
-		return fmt.Errorf("gagal menghubungi service kependudukan untuk validasi silang (pastikan service menyala): %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 200 {
-		body, _ := io.ReadAll(resp.Body)
-
-		// PERBAIKAN 3: Parsing Object tunggal & Anti-Silent Failure
-		var result map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil {
-			tglLahir := fmt.Sprintf("%v", result["tanggal_lahir"])
-
-			umur := -1
-			if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
-				umur = int(time.Since(t).Hours() / 24 / 365.25)
-			}
-
-			// Rule Silang: Kondisi gizi stunting umumnya dicatat untuk balita (<= 5 tahun)
-			if umur >= 0 && umur > 5 && k.KondisiGizi == "Kerdil (Stunting)" {
-				return fmt.Errorf("gagal validasi lintas domain (kependudukan): kondisi gizi 'Kerdil (Stunting)' tidak wajar untuk umur di atas 5 tahun")
-			}
+	if baseURLKependudukan != "" {
+		targetURL := fmt.Sprintf("%s/api/v1/domains/penduduk/datasets/%s", baseURLKependudukan, k.NIK)
+		resp, err := client.Get(targetURL)
+		
+		if err != nil {
+			fmt.Printf("[WARNING] Servis Kependudukan down, NIK %s tidak tervalidasi penuh. Trust Score -10\n", k.NIK)
+			k.TrustScore -= 10.0
 		} else {
-			return fmt.Errorf("gagal parsing JSON dari service kependudukan (Format Beda): %v", errJson)
+			defer resp.Body.Close()
+			if resp.StatusCode == 200 {
+				body, _ := io.ReadAll(resp.Body)
+				var result map[string]interface{}
+				
+				if errJson := json.Unmarshal(body, &result); errJson == nil {
+					tglLahir := fmt.Sprintf("%v", result["tanggal_lahir"])
+
+					umur := -1
+					if t, parseErr := time.Parse("2006-01-02", tglLahir); parseErr == nil {
+						umur = int(time.Since(t).Hours() / 24 / 365.25)
+					}
+
+					if umur >= 0 && umur > 5 && k.KondisiGizi == "Kerdil (Stunting)" {
+						return fmt.Errorf("ditolak: kondisi gizi 'Kerdil (Stunting)' tidak wajar untuk umur di atas 5 tahun")
+					}
+				}
+			}
 		}
 	}
 
@@ -99,7 +90,7 @@ func (s *KesehatanService) ValidateCrossDomainAPI(k models.RekamKesehatan) error
 }
 
 // ==========================================
-// 3. METADATA VALIDATOR (DYNAMIC SCHEMA)
+// 3. METADATA VALIDATION (HARD FAIL)
 // ==========================================
 func (s *KesehatanService) ValidateKesehatanMetadata(k models.RekamKesehatan, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
@@ -125,21 +116,17 @@ func (s *KesehatanService) ValidateKesehatanMetadata(k models.RekamKesehatan, de
 		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
 
 		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
-			// A. Cek Mandatory (Required)
 			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
-				return false, fmt.Sprintf("Atribut kesehatan '%s' wajib diisi (Mandatory)", jsonTag)
+				return false, fmt.Sprintf("Atribut '%s' wajib diisi (Mandatory)", jsonTag)
 			}
-
-			// B. Cek Panjang Karakter (Length) - Berguna banget buat validasi NIK (16 Digit)
 			if lengthVal, ok := r["length"].(float64); ok {
 				if fieldValue != "" && len(fieldValue) != int(lengthVal) {
-					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit sesuai standar", jsonTag, int(lengthVal))
+					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit", jsonTag, int(lengthVal))
 				}
 			}
 		}
 	}
 
-	// 3. VALIDASI ATRIBUT TAMBAHAN (AdditionalInfo)
 	var extra map[string]interface{}
 	json.Unmarshal(k.AdditionalInfo, &extra)
 
@@ -150,7 +137,7 @@ func (s *KesehatanService) ValidateKesehatanMetadata(k models.RekamKesehatan, de
 		if r["required"] == true {
 			if !fixedFields[field] {
 				if valData, exists := extra[field]; !exists || fmt.Sprintf("%v", valData) == "" {
-					return false, fmt.Sprintf("Atribut tambahan kesehatan '%s' wajib diisi sesuai standar Metadata Mesh", field)
+					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi", field)
 				}
 			}
 		}
@@ -160,47 +147,45 @@ func (s *KesehatanService) ValidateKesehatanMetadata(k models.RekamKesehatan, de
 }
 
 // ==========================================
-// 4. INGESTION PIPELINE (SCD TYPE 2)
+// 4. INGESTION PIPELINE (SCD Type 2)
 // ==========================================
 func (s *KesehatanService) ProcessIngestion(k models.RekamKesehatan) (string, error) {
-	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
-	if err := s.ValidateInternalKesehatan(k); err != nil {
-		return "Error Validation", err
+	if err := s.ValidateInternalKesehatan(&k); err != nil {
+		return "Error Internal Logic", err
 	}
 
-	if err := s.ValidateCrossDomainAPI(k); err != nil {
-		return "Error Cross-Validation", err
+	if err := s.ValidateCrossDomainAPI(&k); err != nil {
+		return "Error Cross-Domain Logic", err
 	}
-	// --- AKHIR BLOK VALIDASI ---
 
 	last, err := s.Storage.GetLatestByNIK(k.NIK)
 
-	// Skenario A: Data Kesehatan Baru (First Entry)
+	// Skenario A: Data Baru
 	if err != nil {
 		k.Version = 1
 		k.AuditStatus = "PENDING"
 		if errCreate := s.Storage.Create(&k); errCreate != nil {
-			return "Error", errCreate
+			return "Error Database", errCreate
 		}
-		return "Sukses v1 (Initial Entry)", nil
+		return "Sukses v1 (Masuk Data Mesh)", nil
 	}
 
-	// Skenario B: Update Data (SCD Type 2)
+	// Skenario B: Update Data
 	isNewer := k.ReferenceDate.After(last.ReferenceDate)
 	isHigherAuthority := k.ReferenceDate.Equal(last.ReferenceDate) && k.IsWaliData && !last.IsWaliData
 
 	if isNewer || isHigherAuthority {
-		k.ID = 0 // Reset ID untuk record baru di database
+		k.ID = 0 
 		k.Version = last.Version + 1
-		k.AuditStatus = "PENDING" // Reset audit untuk setiap perubahan data
+		k.AuditStatus = "PENDING"
 
 		if errCreate := s.Storage.Create(&k); errCreate != nil {
-			return "Error", errCreate
+			return "Error Database", errCreate
 		}
-		return fmt.Sprintf("Sukses v%d (Kesehatan Updated)", k.Version), nil
+		return fmt.Sprintf("Sukses v%d (Update)", k.Version), nil
 	}
 
-	return "Abaikan", fmt.Errorf("data kesehatan yang dikirim lebih usang dibandingkan data di mesh")
+	return "Abaikan", fmt.Errorf("data usang atau otoritas lebih rendah")
 }
 
 // ==========================================

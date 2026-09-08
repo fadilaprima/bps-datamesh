@@ -5,7 +5,7 @@ import "gorm.io/datatypes"
 
 type Penduduk struct {
 	// 1. IDENTITAS UTAMA (SCD Type 2 Ready)
-	// ID adalah Primary Key unik untuk tiap baris (v1, v2 beda ID)
+	// ID adalah Primary Key unik untuk tiap baris 
 	// NIK adalah Natural Key (Index) untuk melacak sejarah orang yang sama
 	ID             uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	NIK            string    `gorm:"column:nomor_induk_kependudukan;index:idx_nik_version" json:"nomor_induk_kependudukan" parquet:"name=nomor_induk_kependudukan, type=UTF8"`

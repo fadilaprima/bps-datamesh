@@ -31,7 +31,7 @@ type PendudukIngestRequest struct {
 	KodeKecKTP     string    `json:"kode_kecamatan_ktp"`
 	KodeDesaKTP    string    `json:"kode_kelurahan_desa_ktp"`
 
-	// Metadata untuk Implementasi Data Mesh & Governance 
+	// Metadata untuk Implementasi Data Mesh 
 	// Version: Untuk pelacakan versi data 
 	Version       int       `json:"version"`
 	// SourceID: Identitas Organisasi Pengirim 

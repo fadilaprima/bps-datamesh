@@ -24,7 +24,9 @@ type KesejahteraanHandler struct {
 	Service app.KesejahteraanService
 }
 
-// A. METADATA & SCHEMA MANAGEMENT
+// ==========================================
+// 1. METADATA & SCHEMA MANAGEMENT
+// ==========================================
 func (h *KesejahteraanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
@@ -32,8 +34,6 @@ func (h *KesejahteraanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	}
 
 	domain := c.Params("domain", "kesejahteraan")
-
-	// Archive skema lama agar hanya satu yang aktif
 	h.Service.Storage.DB.Model(&models.Schema{}).
 		Where("domain = ? AND status = ?", domain, "ACTIVE").
 		Update("status", "ARCHIVED")
@@ -48,7 +48,7 @@ func (h *KesejahteraanHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	input.CreatedAt = time.Now()
 
 	if err := h.Service.Storage.DB.Create(&input).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Gagal simpan skema kesejahteraan"})
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal simpan skema"})
 	}
 	return c.Status(201).JSON(input)
 }
@@ -57,41 +57,37 @@ func (h *KesejahteraanHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	var schema models.Schema
 	domain := c.Params("domain", "kesejahteraan")
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", domain, "ACTIVE").Order("version desc").First(&schema).Error; err != nil {
-		return c.Status(404).JSON(fiber.Map{"error": "Skema kesejahteraan aktif tidak ditemukan"})
+		return c.Status(404).JSON(fiber.Map{"error": "Skema aktif tidak ditemukan"})
 	}
 	return c.JSON(schema)
 }
 
-// B. DATA INGESTION (DYNAMIC REFLECT ENGINE)
+// ==========================================
+// 2. DATA INGESTION PIPELINE (HYBRID)
+// ==========================================
 func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
-	// 1. Ambil Skema Aktif (Data Mesh Governance)
 	var activeSchema models.Schema
 	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "kesejahteraan", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Metadata kesejahteraan belum siap, ingest ditolak"})
+		return c.Status(500).JSON(fiber.Map{"error": "Metadata belum siap, ingest ditolak"})
 	}
 
 	fileHeader, err := c.FormFile("document")
 	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "File dokumen (CSV/Parquet) tidak ditemukan"})
+		return c.Status(400).JSON(fiber.Map{"error": "File dokumen tidak ditemukan"})
 	}
 
-	// 2. PENERJEMAH DROPDOWN ANGKA KHUSUS SOURCE ID
-	sourceIDStr := c.FormValue("source_id", "3") // Default: 3 (LAINNYA)
+	sourceIDStr := c.FormValue("source_id", "3")
 	sourceIDInt, _ := strconv.Atoi(sourceIDStr)
-
 	sourceName := "LAINNYA"
 	isWali := false
 	trustScore := 60.0
 
-	// Cocokkan angka dengan kamus di Service (KEMENSOS)
 	if config, exists := app.SourceMap[sourceIDInt]; exists {
 		sourceName = config.Name
 		isWali = config.IsWali
-		if isWali {
-			trustScore += 20.0
-		}
+		if isWali { trustScore += 20.0 }
 	} else {
-		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid. Gunakan: 1 (BPS), 2 (KEMENSOS), 3 (LAINNYA)"})
+		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid"})
 	}
 
 	refDate, _ := time.Parse("2006-01-02", c.FormValue("reference_date", time.Now().Format("2006-01-02")))
@@ -101,8 +97,8 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 	var dataList []models.RekamKesejahteraan
 	filename := strings.ToLower(fileHeader.Filename)
 
-	// 3. PARSING LOGIC (CSV AUTO-DETECTION DENGAN REFLECT)
 	if strings.HasSuffix(filename, ".csv") {
+		// [PARSER 1] CSV Handling
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
 		if len(records) < 2 {
@@ -118,7 +114,6 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 			k := models.RekamKesejahteraan{ReferenceDate: refDate}
 			kValue := reflect.ValueOf(&k).Elem()
 
-			// Mapping variabel Kesejahteraan / Kemensos Regsosek
 			for idx, val := range rec {
 				if idx >= len(headers) { continue }
 				key := strings.ToLower(headers[idx])
@@ -127,7 +122,6 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 				for fIdx := 0; fIdx < kType.NumField(); fIdx++ {
 					field := kType.Field(fIdx)
 					jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
-					
 					if jsonTag == key {
 						found = true
 						fieldVal := kValue.Field(fIdx)
@@ -152,10 +146,12 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 			dataList = append(dataList, k)
 		}
 	} else if strings.HasSuffix(filename, ".parquet") {
+		// [PARSER 2] Parquet Handling
 		tmpPath := "temp_kesj_" + uuid.New().String() + ".parquet"
 		fw, _ := os.Create(tmpPath)
 		io.Copy(fw, file)
 		fw.Close()
+		defer os.Remove(tmpPath)
 
 		fr, _ := local.NewLocalFileReader(tmpPath)
 		pr, errP := reader.NewParquetReader(fr, new(models.RekamKesejahteraan), 4)
@@ -165,38 +161,39 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 			pr.Read(&res)
 			pr.ReadStop()
 			fr.Close()
-			os.Remove(tmpPath)
 			dataList = res
 		}
 	} else {
+		// [PARSER 3] JSON Handling
 		body, _ := io.ReadAll(file)
-		json.Unmarshal(body, &dataList)
+		if errJson := json.Unmarshal(body, &dataList); errJson != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Format JSON gagal diparsing"})
+		}
+		
+		for i := range dataList {
+			if dataList[i].ReferenceDate.IsZero() {
+				dataList[i].ReferenceDate = refDate
+			}
+		}
 	}
 
-	// 4. VALIDASI & PROSES (SCD TYPE 2)
 	success, fail := 0, 0
 	var errorLogs []string
 
-	// Lakukan injeksi data otoritas & validasi ke semua baris data
 	for i := range dataList {
-		// a. INJEKSI KEAMANAN & GOVERNANCE (Sistem Memaksa Nilai Ini)
 		dataList[i].SourceID = sourceName
 		dataList[i].IsWaliData = isWali
 		dataList[i].AuditStatus = "PENDING"
 		dataList[i].SchemaVersion = fmt.Sprintf("v%d", activeSchema.Version)
 
-		if dataList[i].TrustScore == 0 {
-			dataList[i].TrustScore = trustScore
-		}
+		if dataList[i].TrustScore == 0 { dataList[i].TrustScore = trustScore }
 
-		// b. Validasi Dinamis lewat Service
 		if ok, msg := h.Service.ValidateKesejahteraanMetadata(dataList[i], activeSchema.Definition); !ok {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %s", dataList[i].NoKK, msg))
-			continue // Skip ke baris berikutnya jika gagal validasi
+			continue
 		}
 
-		// c. Simpan ke Database
 		if _, err := h.Service.ProcessIngestion(dataList[i]); err != nil {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %v", dataList[i].NoKK, err))
@@ -214,6 +211,9 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 	})
 }
 
+// ==========================================
+// 3. MONITORING & TRACKING
+// ==========================================
 func (h *KesejahteraanHandler) GetValidationStatus(c *fiber.Ctx) error {
 	result, err := h.Service.Storage.GetLatestByNoKK(c.Params("nokk"))
 	status := "PENDING"
@@ -237,6 +237,9 @@ func (h *KesejahteraanHandler) GetProgress(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"nomor_kartu_keluarga": c.Params("nokk"), "status": status, "progress": "100%"})
 }
 
+// ==========================================
+// 4. DATASET MAINTENANCE (CRUD)
+// ==========================================
 func (h *KesejahteraanHandler) GetAllDatasets(c *fiber.Ctx) error {
 	fields := c.Query("fields")
 	var fieldList []string
@@ -265,27 +268,28 @@ func (h *KesejahteraanHandler) UpdateDataset(c *fiber.Ctx) error {
 
 func (h *KesejahteraanHandler) SoftDeleteDataset(c *fiber.Ctx) error {
 	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) }
-	return c.JSON(fiber.Map{"message": "Data diarsipkan"})
+	return c.JSON(fiber.Map{"message": "Data diarsipkan (Soft Delete)"})
 }
 
+// ==========================================
+// 5. GOVERNANCE & AUDIT LOGIC
+// ==========================================
 func (h *KesejahteraanHandler) GetAuditSamples(c *fiber.Ctx) error {
-	// 1. Ambil limit dari query param, default ke 10 jika tidak diisi
-    limit, err := strconv.Atoi(c.Query("limit", "10"))
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"})
-    }
+	limit, err := strconv.Atoi(c.Query("limit", "10"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"})
+	}
 
-    // 2. Oper 'limit' ke Service
-    results, err := h.Service.Storage.GetAuditSamples(limit) 
-    if err != nil {
-        return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"})
-    }
-    
-    if len(results) == 0 {
-        return c.JSON(fiber.Map{"message": "Tidak ada data kependudukan terbaru yang perlu diaudit."})
-    }
-    
-    return c.JSON(results)
+	results, err := h.Service.Storage.GetAuditSamples(limit) 
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"})
+	}
+	
+	if len(results) == 0 {
+		return c.JSON(fiber.Map{"message": "Tidak ada data kesejahteraan terbaru yang perlu diaudit."})
+	}
+	
+	return c.JSON(results)
 }
 
 func (h *KesejahteraanHandler) SubmitAuditDecision(c *fiber.Ctx) error {
@@ -298,5 +302,5 @@ func (h *KesejahteraanHandler) SubmitAuditDecision(c *fiber.Ctx) error {
 
 	verdictText, err := h.Service.ProcessAuditDecision(input.NoKK, input.Verdict)
 	if err != nil { return c.Status(400).JSON(fiber.Map{"error": err.Error()}) }
-	return c.JSON(fiber.Map{"message": fmt.Sprintf("Audit kesejahteraan selesai. %d KK diubah menjadi %s", len(input.NoKK), verdictText)})
+	return c.JSON(fiber.Map{"message": fmt.Sprintf("Audit selesai. %d KK diubah menjadi %s", len(input.NoKK), verdictText)})
 }

@@ -39,78 +39,78 @@ var AuditMap = map[int]string{
 }
 
 // ==========================================
-// 1. FUNGSI VALIDASI INTERNAL (INTRA-DOMAIN)
+// 1. FUNGSI VALIDASI INTERNAL (HARD FAIL)
 // ==========================================
-func (s *HunianService) ValidateInternalHunian(k models.RekamHunian) error {
-	// Rule: Luas lantai maksimum sesuai standar DTSEN adalah 999 m2
+func (s *HunianService) ValidateInternalHunian(k *models.RekamHunian) error {
 	if k.LuasLantai < 0 || k.LuasLantai > 999 {
-		return fmt.Errorf("gagal validasi internal: luas lantai tidak valid (harus 0 s.d. 999 m2)")
+		return fmt.Errorf("luas lantai tidak valid (harus 0 s.d. 999 m2)")
 	}
 
-	// Rule: FasilitasBAB "Tidak Ada" tetapi jenis kloset Leher Angsa atau pembuangan tinja Tangki Septik
 	if k.FasilitasBAB == "Tidak Ada" && (k.JenisKloset == "Leher Angsa" || k.PembuanganTinja == "Tangki Septik") {
-		return fmt.Errorf("gagal validasi internal: fasilitas BAB tidak ada tetapi jenis kloset atau pembuangan tinja menggunakan standar layak")
+		return fmt.Errorf("fasilitas BAB tidak ada tetapi jenis kloset atau pembuangan tinja menggunakan standar layak")
 	}
 
 	return nil
 }
 
 // ==========================================
-// 2. FUNGSI VALIDASI SILANG (CROSS-DOMAIN API)
+// 2. FUNGSI VALIDASI SILANG (HYBRID)
 // ==========================================
-func (s *HunianService) ValidateCrossDomainAPI(k models.RekamHunian) error {
+func (s *HunianService) ValidateCrossDomainAPI(k *models.RekamHunian) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// Cek ke Domain Energi berdasarkan NoKK
+	// A. Domain Energi 
 	baseURLEnergi := os.Getenv("URL_ENERGI")
-	targetURLEnergi := fmt.Sprintf("%s/api/v1/domains/energi/datasets/%s", baseURLEnergi, k.NoKK)
-	
-	respEnergi, err := client.Get(targetURLEnergi)
-	if err != nil {
-		return fmt.Errorf("gagal menghubungi service energi untuk validasi silang (pastikan service menyala): %v", err)
-	}
-	defer respEnergi.Body.Close()
-
-	if respEnergi.StatusCode == 200 {
-		body, _ := io.ReadAll(respEnergi.Body)
-
-		var result map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil {
-			dayaTerpasang, _ := strconv.Atoi(fmt.Sprintf("%v", result["daya_terpasang"]))
-
-			// Rule: SumberPenerangan = Bukan Listrik dan daya_terpasang > 0
-			if k.SumberPenerangan == "Bukan Listrik" && dayaTerpasang > 0 {
-				return fmt.Errorf("gagal validasi lintas domain (energi): sumber penerangan bukan listrik tetapi terdapat daya terpasang > 0")
-			}
+	if baseURLEnergi != "" {
+		targetURLEnergi := fmt.Sprintf("%s/api/v1/domains/energi/datasets/%s", baseURLEnergi, k.NoKK)
+		respEnergi, err := client.Get(targetURLEnergi)
+		
+		if err != nil {
+			fmt.Printf("[WARNING] Servis Energi down, NoKK %s tidak tervalidasi penuh. Trust Score -10\n", k.NoKK)
+			k.TrustScore -= 10.0
 		} else {
-			return fmt.Errorf("gagal parsing JSON dari service energi (Format Beda): %v", errJson)
+			defer respEnergi.Body.Close()
+			if respEnergi.StatusCode == 200 {
+				body, _ := io.ReadAll(respEnergi.Body)
+				var result map[string]interface{}
+				
+				if errJson := json.Unmarshal(body, &result); errJson == nil {
+					dayaTerpasang, _ := strconv.Atoi(fmt.Sprintf("%v", result["daya_terpasang"]))
+
+					if k.SumberPenerangan == "Bukan Listrik" && dayaTerpasang > 0 {
+						return fmt.Errorf("ditolak: sumber penerangan bukan listrik tetapi terdapat daya terpasang > 0")
+					}
+				}
+			}
 		}
 	}
 
-	// Cek ke Domain Kesejahteraan berdasarkan NoKK
+	// B. Domain Kesejahteraan 
 	baseURLKesejahteraan := os.Getenv("URL_KESEJAHTERAAN")
-	targetURLKesejahteraan := fmt.Sprintf("%s/api/v1/domains/kesejahteraan/datasets/%s", baseURLKesejahteraan, k.NoKK)
-	
-	respKes, err := client.Get(targetURLKesejahteraan)
-	if err != nil {
-		return fmt.Errorf("gagal menghubungi service kesejahteraan untuk validasi silang (pastikan service menyala): %v", err)
-	}
-	defer respKes.Body.Close()
-
-	if respKes.StatusCode == 200 {
-		body, _ := io.ReadAll(respKes.Body)
-
-		var result map[string]interface{}
-		if errJson := json.Unmarshal(body, &result); errJson == nil {
-			asetAc := fmt.Sprintf("%v", result["aset_bergerak_ac"])
-			asetKulkas := fmt.Sprintf("%v", result["aset_bergerak_lemari_es"])
-
-			// Rule: SumberPenerangan = Bukan Listrik dan (aset_bergerak_ac = Ya ATAU aset_bergerak_lemari_es = Ya)
-			if k.SumberPenerangan == "Bukan Listrik" && (asetAc == "Ya" || asetAc == "1" || asetKulkas == "Ya" || asetKulkas == "1") {
-				return fmt.Errorf("gagal validasi lintas domain (kesejahteraan): sumber penerangan utama bukan listrik tetapi memiliki aset AC atau Lemari Es")
-			}
+	if baseURLKesejahteraan != "" {
+		targetURLKesejahteraan := fmt.Sprintf("%s/api/v1/domains/kesejahteraan/datasets/%s", baseURLKesejahteraan, k.NoKK)
+		respKes, err := client.Get(targetURLKesejahteraan)
+		
+		if err != nil {
+			// [NETWORK ERROR - SOFT FAIL]
+			fmt.Printf("[WARNING] Servis Kesejahteraan down, NoKK %s tidak tervalidasi penuh. Trust Score -10\n", k.NoKK)
+			k.TrustScore -= 10.0
 		} else {
-			return fmt.Errorf("gagal parsing JSON dari service kesejahteraan (Format Beda): %v", errJson)
+			defer respKes.Body.Close()
+			if respKes.StatusCode == 200 {
+				body, _ := io.ReadAll(respKes.Body)
+				var result map[string]interface{}
+				
+				if errJson := json.Unmarshal(body, &result); errJson == nil {
+					asetAc := fmt.Sprintf("%v", result["aset_bergerak_ac"])
+					asetKulkas := fmt.Sprintf("%v", result["aset_bergerak_lemari_es"])
+
+					// [LOGICAL ERROR - HARD FAIL]
+					if k.SumberPenerangan == "Bukan Listrik" && (asetAc == "Ya" || asetAc == "1" || asetKulkas == "Ya" || asetKulkas == "1") {
+						return fmt.Errorf("ditolak: sumber penerangan utama bukan listrik tetapi memiliki aset AC atau Lemari Es")
+					}
+				}
+			}
 		}
 	}
 
@@ -118,7 +118,7 @@ func (s *HunianService) ValidateCrossDomainAPI(k models.RekamHunian) error {
 }
 
 // ==========================================
-// 3. METADATA VALIDATOR (DYNAMIC SCHEMA)
+// 3. METADATA VALIDATION (HARD FAIL)
 // ==========================================
 func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}
@@ -142,19 +142,16 @@ func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition 
 		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
 
 		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
-			// A. Cek Mandatory (Required)
 			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
-				return false, fmt.Sprintf("Atribut hunian '%s' wajib diisi (Mandatory)", jsonTag)
+				return false, fmt.Sprintf("Atribut '%s' wajib diisi (Mandatory)", jsonTag)
 			}
 
-			// B. Cek Panjang Karakter (Length) - Berguna buat Nomor KK (16 digit)
 			if lengthVal, ok := r["length"].(float64); ok {
 				if fieldValue != "" && len(fieldValue) != int(lengthVal) {
 					return false, fmt.Sprintf("Atribut '%s' tidak valid, harus %d digit", jsonTag, int(lengthVal))
 				}
 			}
 			
-			// C. Cek Batas Maksimum (Max) - Khusus untuk Luas Lantai
 			if maxVal, ok := r["max"].(float64); ok {
 				var intVal int
 				fmt.Sscanf(fieldValue, "%d", &intVal)
@@ -165,7 +162,6 @@ func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition 
 		}
 	}
 
-	// VALIDASI ATRIBUT TAMBAHAN (AdditionalInfo)
 	var extra map[string]interface{}
 	json.Unmarshal(k.AdditionalInfo, &extra)
 
@@ -176,7 +172,7 @@ func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition 
 		if r["required"] == true {
 			if !fixedFields[field] {
 				if valData, exists := extra[field]; !exists || fmt.Sprintf("%v", valData) == "" {
-					return false, fmt.Sprintf("Atribut tambahan hunian '%s' wajib diisi", field)
+					return false, fmt.Sprintf("Atribut tambahan '%s' wajib diisi", field)
 				}
 			}
 		}
@@ -186,28 +182,30 @@ func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition 
 }
 
 // ==========================================
-// 4. INGESTION PIPELINE (SCD TYPE 2)
+// 4. INGESTION PIPELINE (SCD Type 2)
 // ==========================================
 func (s *HunianService) ProcessIngestion(k models.RekamHunian) (string, error) {
-	// --- EKSEKUSI BLOK VALIDASI SEBELUM MASUK DATABASE ---
-	if err := s.ValidateInternalHunian(k); err != nil {
-		return "Error Validation", err
+	if err := s.ValidateInternalHunian(&k); err != nil {
+		return "Error Internal Logic", err
 	}
 
-	if err := s.ValidateCrossDomainAPI(k); err != nil {
-		return "Error Cross-Validation", err
+	if err := s.ValidateCrossDomainAPI(&k); err != nil {
+		return "Error Cross-Domain Logic", err
 	}
-	// --- AKHIR BLOK VALIDASI ---
 
 	last, err := s.Storage.GetLatestByNoKK(k.NoKK)
 
+	// Skenario A: Data Baru
 	if err != nil {
 		k.Version = 1
 		k.AuditStatus = "PENDING"
-		if errCreate := s.Storage.Create(&k); errCreate != nil { return "Error", errCreate }
-		return "Sukses v1 (Initial Entry)", nil
+		if errCreate := s.Storage.Create(&k); errCreate != nil {
+			return "Error Database", errCreate
+		}
+		return "Sukses v1 (Masuk Data Mesh)", nil
 	}
 
+	// Skenario B: Update Data
 	isNewer := k.ReferenceDate.After(last.ReferenceDate)
 	isHigherAuthority := k.ReferenceDate.Equal(last.ReferenceDate) && k.IsWaliData && !last.IsWaliData
 
@@ -216,11 +214,13 @@ func (s *HunianService) ProcessIngestion(k models.RekamHunian) (string, error) {
 		k.Version = last.Version + 1
 		k.AuditStatus = "PENDING" 
 
-		if errCreate := s.Storage.Create(&k); errCreate != nil { return "Error", errCreate }
-		return fmt.Sprintf("Sukses v%d (Hunian Updated)", k.Version), nil
+		if errCreate := s.Storage.Create(&k); errCreate != nil {
+			return "Error Database", errCreate
+		}
+		return fmt.Sprintf("Sukses v%d (Update)", k.Version), nil
 	}
 
-	return "Abaikan", fmt.Errorf("data hunian yang dikirim usang")
+	return "Abaikan", fmt.Errorf("data usang atau otoritas lebih rendah")
 }
 
 // ==========================================

@@ -1,3 +1,2 @@
-nomor_kartu_keluarga,nama_anggota_keluarga,jumlah_anggota_keluarga,nomor_induk_kependudukan,nama,tanggal_lahir,jenis_kelamin,status_kawin,status_hubungan_keluarga,alamat,kode_provinsi,kode_kabupaten_kota,kode_kecamatan,kode_kelurahan_desa,alamat_ktp,rt_ktp,rw_ktp,dusun_ktp,kode_provinsi_ktp,kode_kabupaten_kota_ktp,kode_kecamatan_ktp,kode_kelurahan_desa_ktp
-317101010101000,Budi Santoso,4,317101010101000,Budi Santoso,1990-01-01,1,2,1,Jl. Gambir No. 1,31,3171,3171010,3171010001,Jl. Gambir No. 1,001,002,Gambir,31,3171,3171010,3171010001
-3171010101010002,Siti Aminah,3,3171010101010002,Siti Aminah,1992-05-15,2,2,2,Jl. Menteng No. 5,31,3171,3171020,3171020005,Jl. Menteng No. 5,005,001,Menteng,31,3171,3171020,3171020005
+nik,nomor_induk_kependudukan,nomor_kartu_keluarga,nama,tanggal_lahir,jenis_kelamin,status_kawin,status_hubungan_keluarga,reference_date,is_wali_data
+3171530470000999,3171530470000999,3201010101250001,Bocil Ajaib,2024-01-01,1,Belum Kawin,Anak,2026-09-07,true
