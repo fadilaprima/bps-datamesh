@@ -84,7 +84,9 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 	if config, exists := app.SourceMap[sourceIDInt]; exists {
 		sourceName = config.Name
 		isWali = config.IsWali
-		if isWali { trustScore += 20.0 }
+		if isWali {
+			trustScore += 20.0
+		}
 	} else {
 		return c.Status(400).JSON(fiber.Map{"error": "source_id tidak valid"})
 	}
@@ -99,19 +101,25 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 	if strings.HasSuffix(filename, ".csv") {
 		r := csv.NewReader(file)
 		records, _ := r.ReadAll()
-		if len(records) < 2 { return c.Status(400).JSON(fiber.Map{"error": "CSV kosong"}) }
-		
+		if len(records) < 2 {
+			return c.Status(400).JSON(fiber.Map{"error": "CSV kosong"})
+		}
+
 		headers := records[0]
 		wilayahType := reflect.TypeOf(models.MasterWilayah{})
 
 		for i, rec := range records {
-			if i == 0 { continue }
+			if i == 0 {
+				continue
+			}
 			extraData := make(map[string]interface{})
 			w := models.MasterWilayah{ReferenceDate: refDate}
 			wilayahValue := reflect.ValueOf(&w).Elem()
 
 			for idx, val := range rec {
-				if idx >= len(headers) { continue }
+				if idx >= len(headers) {
+					continue
+				}
 				key := strings.ToLower(headers[idx])
 				found := false
 
@@ -121,22 +129,31 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 					if jsonTag == key {
 						found = true
 						fieldVal := wilayahValue.Field(fIdx)
-						if !fieldVal.CanSet() { continue }
+						if !fieldVal.CanSet() {
+							continue
+						}
 						switch fieldVal.Kind() {
-						case reflect.String: fieldVal.SetString(val)
+						case reflect.String:
+							fieldVal.SetString(val)
 						case reflect.Int, reflect.Int32, reflect.Int64:
 							var intVal int64
-							if val != "" { fmt.Sscanf(val, "%d", &intVal) }
+							if val != "" {
+								fmt.Sscanf(val, "%d", &intVal)
+							}
 							fieldVal.SetInt(intVal)
 						case reflect.Float32, reflect.Float64:
 							var floatVal float64
-							if val != "" { fmt.Sscanf(val, "%f", &floatVal) }
+							if val != "" {
+								fmt.Sscanf(val, "%f", &floatVal)
+							}
 							fieldVal.SetFloat(floatVal)
 						}
 						break
 					}
 				}
-				if !found && key != "" { extraData[key] = val }
+				if !found && key != "" {
+					extraData[key] = val
+				}
 			}
 			w.AdditionalInfo, _ = json.Marshal(extraData)
 			dataList = append(dataList, w)
@@ -164,7 +181,7 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 		if errJson := json.Unmarshal(body, &dataList); errJson != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "Format JSON gagal diparsing"})
 		}
-		
+
 		for i := range dataList {
 			if dataList[i].ReferenceDate.IsZero() {
 				dataList[i].ReferenceDate = refDate
@@ -180,8 +197,10 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 		dataList[i].IsWaliData = isWali
 		dataList[i].AuditStatus = "PENDING"
 		dataList[i].SchemaVersion = fmt.Sprintf("v%d", activeSchema.Version)
-		
-		if dataList[i].TrustScore == 0 { dataList[i].TrustScore = trustScore }
+
+		if dataList[i].TrustScore == 0 {
+			dataList[i].TrustScore = trustScore
+		}
 
 		if ok, msg := h.Service.ValidateWilayahMetadata(dataList[i], activeSchema.Definition); !ok {
 			fail++
@@ -211,13 +230,17 @@ func (h *WilayahHandler) IngestData(c *fiber.Ctx) error {
 func (h *WilayahHandler) GetValidationStatus(c *fiber.Ctx) error {
 	result, err := h.Service.Storage.GetLatestByKode(c.Params("kode"))
 	status := "PENDING"
-	if err == nil && result != nil { status = result.AuditStatus }
+	if err == nil && result != nil {
+		status = result.AuditStatus
+	}
 	return c.JSON(fiber.Map{"kode_desa": c.Params("kode"), "status": status})
 }
 
 func (h *WilayahHandler) GetScoring(c *fiber.Ctx) error {
 	result, err := h.Service.Storage.GetLatestByKode(c.Params("kode"))
-	if err != nil || result == nil { return c.Status(404).JSON(fiber.Map{"error": "Data wilayah tidak ditemukan"}) }
+	if err != nil || result == nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Data wilayah tidak ditemukan"})
+	}
 	return c.JSON(fiber.Map{
 		"kode_desa": result.KodeDesa, "trust_score": result.TrustScore,
 		"is_walidata": result.IsWaliData, "audit_status": result.AuditStatus,
@@ -228,7 +251,9 @@ func (h *WilayahHandler) GetScoring(c *fiber.Ctx) error {
 func (h *WilayahHandler) GetProgress(c *fiber.Ctx) error {
 	count, err := h.Service.Storage.CountByKode(c.Params("kode"))
 	status := "NOT_FOUND"
-	if err == nil && count > 0 { status = "COMPLETED_IN_MESH" }
+	if err == nil && count > 0 {
+		status = "COMPLETED_IN_MESH"
+	}
 	return c.JSON(fiber.Map{"kode_desa": c.Params("kode"), "status": status, "progress": "100%"})
 }
 
@@ -238,18 +263,26 @@ func (h *WilayahHandler) GetProgress(c *fiber.Ctx) error {
 func (h *WilayahHandler) GetAllDatasets(c *fiber.Ctx) error {
 	fields := c.Query("fields")
 	var fieldList []string
-	if fields != "" { fieldList = strings.Split(fields, ",") }
+	if fields != "" {
+		fieldList = strings.Split(fields, ",")
+	}
 	results, err := h.Service.Storage.GetFetchWithFields(fieldList)
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data"}) }
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data"})
+	}
 	return c.JSON(results)
 }
 
 func (h *WilayahHandler) GetDatasetDetail(c *fiber.Ctx) error {
 	fields := c.Query("fields")
 	var fieldList []string
-	if fields != "" { fieldList = strings.Split(fields, ",") }
+	if fields != "" {
+		fieldList = strings.Split(fields, ",")
+	}
 	result, err := h.Service.Storage.GetDetailWithFields(c.Params("kode"), fieldList)
-	if err != nil { return c.Status(404).JSON(fiber.Map{"error": "Data tidak ditemukan"}) }
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Data tidak ditemukan"})
+	}
 	return c.JSON(result)
 }
 
@@ -273,19 +306,24 @@ func (h *WilayahHandler) SoftDeleteDataset(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "Soft delete berhasil"})
 }
 
-
 // ==========================================
 // 5. GOVERNANCE & AUDIT LOGIC
 // ==========================================
 func (h *WilayahHandler) GetAuditSamples(c *fiber.Ctx) error {
 	limit, err := strconv.Atoi(c.Query("limit", "10"))
-	if err != nil { return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"}) }
-	
-	results, err := h.Service.Storage.GetAuditSamples(limit) 
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"}) }
-	
-	if len(results) == 0 { return c.JSON(fiber.Map{"message": "Tidak ada data wilayah terbaru yang perlu diaudit."}) }
-	
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"})
+	}
+
+	results, err := h.Service.Storage.GetAuditSamples(limit)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"})
+	}
+
+	if len(results) == 0 {
+		return c.JSON(fiber.Map{"message": "Tidak ada data wilayah terbaru yang perlu diaudit."})
+	}
+
 	return c.JSON(results)
 }
 
@@ -294,10 +332,16 @@ func (h *WilayahHandler) SubmitAuditDecision(c *fiber.Ctx) error {
 		KodeDesa []string `json:"kode_kelurahan_desa"`
 		Verdict  int      `json:"verdict"`
 	}
-	if err := c.BodyParser(&input); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"}) }
-	if len(input.KodeDesa) == 0 { return c.Status(400).JSON(fiber.Map{"error": "Kode desa wajib diisi"}) }
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
+	}
+	if len(input.KodeDesa) == 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "Kode desa wajib diisi"})
+	}
 
 	verdictText, err := h.Service.ProcessAuditDecision(input.KodeDesa, input.Verdict)
-	if err != nil { return c.Status(400).JSON(fiber.Map{"error": err.Error()}) }
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
 	return c.JSON(fiber.Map{"message": fmt.Sprintf("Audit %d desa selesai: %s", len(input.KodeDesa), verdictText)})
 }
