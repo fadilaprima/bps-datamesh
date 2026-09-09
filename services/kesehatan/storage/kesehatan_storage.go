@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"kesehatan/models"
+
 	"gorm.io/gorm"
 )
 
@@ -39,13 +40,13 @@ func (s *KesehatanStorage) GetBySubmission(subID string) ([]models.RekamKesehata
 
 func (s *KesehatanStorage) GetFetchWithFields(fields []string) ([]models.RekamKesehatan, error) {
 	var results []models.RekamKesehatan
-	
+
 	// Cari absolute ID tertinggi dari tiap NIK
 	subQuery := s.DB.Model(&models.RekamKesehatan{}).
 		Select("MAX(id)").
 		Where("is_deleted = ?", false).
 		Group("nomor_induk_kependudukan")
-	
+
 	// Filter ID tertinggi tersebut. Kalau dia terhapus, NIK-nya tidak akan tampil sama sekali
 	query := s.DB.Where("id IN (?)", subQuery)
 
@@ -74,7 +75,7 @@ func (s *KesehatanStorage) SoftDelete(identifier string) error {
 	if len(cleanID) == 16 {
 		return s.DB.Model(&models.RekamKesehatan{}).Where("nomor_induk_kependudukan = ?", cleanID).Update("is_deleted", true).Error
 	}
-	
+
 	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
 	return s.DB.Model(&models.RekamKesehatan{}).Where("id = ?", cleanID).Update("is_deleted", true).Error
 }
@@ -92,7 +93,7 @@ func (s *KesehatanStorage) GetSample(limit int) ([]models.RekamKesehatan, error)
 // GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
 func (s *KesehatanStorage) GetAuditSamples(limit int) ([]models.RekamKesehatan, error) {
 	var results []models.RekamKesehatan
-	
+
 	query := `
 		SELECT k.* FROM rekam_kesehatans k
 		INNER JOIN (
@@ -107,7 +108,7 @@ func (s *KesehatanStorage) GetAuditSamples(limit int) ([]models.RekamKesehatan, 
 		ORDER BY RANDOM()
 		LIMIT ?
 	`
-	
+
 	err := s.DB.Raw(query, limit).Scan(&results).Error
 	return results, err
 }
