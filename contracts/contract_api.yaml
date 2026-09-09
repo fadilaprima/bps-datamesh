@@ -1,0 +1,478 @@
+openapi: 3.0.3
+info:
+  title: DTSEN BPS RI Data Mesh API
+  description: |
+    Dokumentasi API Final untuk Arsitektur Data Mesh DTSEN BPS Republik Indonesia.
+    Mendukung manajemen Golden Record dengan SCD Type 2, Audit Validation, dan Data Stitching.
+  version: 1.0.0
+
+servers:
+  - url: 'http://datamesh.eastasia.cloudapp.azure.com:{port}/api/v1'
+    description: Production Server (Azure VM)
+    variables:
+      port:
+        default: '8000'
+        enum:
+          - '8000' # Social Economy (Core Aggregator)
+          - '8081' # Kependudukan
+          - '8082' # Pendidikan
+          - '8083' # Wilayah
+          - '8084' # Kesehatan
+          - '8085' # Ketenagakerjaan
+          - '8086' # Kesejahteraan
+          - '8087' # Hunian
+          - '8088' # Energi
+
+paths:
+  # ==========================================
+  # A. DATA INGESTION & MONITORING (4 Endpoints)
+  # ==========================================
+  /domains/{domain}/submissions:
+    post:
+      summary: (A1) Ingest Bulk Data (CSV/Parquet/JSON)
+      tags: [A. Ingestion & Monitoring]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [document, source_id]
+              properties:
+                document: 
+                  type: string
+                  format: binary
+                  description: File dataset (Sistem saat ini tetap memproses format selain CSV/Parquet/JSON tanpa menolak via HTTP Error).
+                source_id: 
+                  type: string
+                reference_date: 
+                  type: string
+                  format: date
+      responses:
+        '200':
+          description: |
+            Ingestion Finished. 
+            Catatan: Jika mengunggah file dengan ekstensi tidak valid (misal .pdf), sistem tetap merespons 200 OK dengan status "Ingestion Finished" dan total data success = 0.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestionResponse'
+        '400':
+          description: File kosong atau request tidak lengkap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Metadata belum siap
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /domains/{domain}/submissions/{identifier}/validation:
+    get:
+      summary: (A2) Cek Status Validasi
+      tags: [A. Ingestion & Monitoring]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+        - $ref: '#/components/parameters/IdentifierParam'
+      responses:
+        '200':
+          description: Status audit terakhir
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  identifier: {type: string}
+                  status: {type: string}
+                  schema: {type: string}
+
+  /domains/{domain}/submissions/{identifier}/scoring:
+    get:
+      summary: (A3) Cek Trust Score & Kualitas
+      tags: [A. Ingestion & Monitoring]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+        - $ref: '#/components/parameters/IdentifierParam'
+      responses:
+        '200':
+          description: Detail skor kualitas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  identifier: {type: string}
+                  trust_score: {type: number}
+                  is_walidata: {type: boolean}
+                  audit_status: {type: string}
+                  quality_label: {type: string}
+        '404':
+          description: Data tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /domains/{domain}/submissions/{identifier}/progress:
+    get:
+      summary: (A4) Cek Progres Sinkronisasi Database
+      tags: [A. Ingestion & Monitoring]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+        - $ref: '#/components/parameters/IdentifierParam'
+      responses:
+        '200':
+          description: Status sinkronisasi ke Mesh
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  identifier: {type: string}
+                  status: {type: string, example: "COMPLETED_IN_MESH"}
+                  progress: {type: string, example: "100%"}
+
+  # ==========================================
+  # B. METADATA & SCHEMA MANAGEMENT (3 Endpoints)
+  # ==========================================
+  /domains/{domain}/schemas:
+    post:
+      summary: (B1) Register Skema Baru
+      tags: [B. Schema Management]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchemaInput'
+      responses:
+        '201':
+          description: Skema berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schema'
+        '400':
+          description: Payload JSON tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Gagal simpan skema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      summary: (B2) Update Skema (Incremental)
+      tags: [B. Schema Management]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchemaInput'
+      responses:
+        '200':
+          description: Skema berhasil diupdate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schema'
+
+  /domains/{domain}/schemas/latest:
+    get:
+      summary: (B3) Lihat Detail Skema Aktif
+      tags: [B. Schema Management]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+      responses:
+        '200':
+          description: Skema aktif berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schema'
+        '404':
+          description: Skema aktif tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ==========================================
+  # C. DATASET MAINTENANCE (3 Endpoints)
+  # ==========================================
+  /domains/{domain}/datasets:
+    get:
+      summary: (C1) Katalog Golden Record Aktif
+      tags: [C. Dataset Maintenance]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+        - in: query
+          name: fields
+          schema: {type: string}
+          description: Filter kolom (contoh "id,nik")
+      responses:
+        '200':
+          description: Daftar dataset
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BaseDataset'
+        '500':
+          description: Gagal mengambil data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /domains/{domain}/datasets/{identifier}:
+    get:
+      summary: (C2) Detail Record Spesifik
+      tags: [C. Dataset Maintenance]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+        - $ref: '#/components/parameters/IdentifierParam'
+      responses:
+        '200':
+          description: Detail dataset lengkap
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseDataset'
+        '404':
+          description: Record tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: (C3) Koreksi Nilai Manual (SCD Type 2)
+      tags: [C. Dataset Maintenance]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+        - $ref: '#/components/parameters/IdentifierParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Payload data sesuai skema domain
+      responses:
+        '200':
+          description: Update berhasil, versi baru di-generate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+                  version: {type: integer}
+        '400':
+          description: Payload tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ==========================================
+  # D. GOVERNANCE & LIFECYCLE (3 Endpoints)
+  # ==========================================
+  /domains/{domain}/datasets/{id}:
+    delete:
+      summary: (D1) Soft Delete Record
+      tags: [D. Governance & Lifecycle]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+          description: Absolute ID dari database (Primary Key)
+      responses:
+        '200':
+          description: Soft delete berhasil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+        '500':
+          description: Gagal dinonaktifkan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /domains/{domain}/audit/samples:
+    get:
+      summary: (D2) Request Sampel PENDING Audit
+      tags: [D. Governance & Lifecycle]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+        - in: query
+          name: limit
+          schema: {type: integer, default: 10}
+      responses:
+        '200':
+          description: Daftar sampel data yang butuh audit
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BaseDataset'
+        '404':
+          description: |
+            Not Found.
+            Catatan: Secara natural dikembalikan oleh router GoFiber jika client melakukan request ke `/api/v1/domains/audit/samples` tanpa menyisipkan nama parameter `{domain}` (seperti `/penduduk/`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Gagal mengambil data audit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /domains/{domain}/audit/decision:
+    post:
+      summary: (D3) Kirim Keputusan Audit (Bulk)
+      tags: [D. Governance & Lifecycle]
+      parameters:
+        - $ref: '#/components/parameters/DomainParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditRequest'
+      responses:
+        '200':
+          description: Keputusan berhasil disimpan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+        '400':
+          description: Payload tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  parameters:
+    DomainParam:
+      name: domain
+      in: path
+      required: true
+      schema: 
+        type: string
+        enum: [kependudukan, pendidikan, ketenagakerjaan, kesejahteraan, kesehatan, hunian, energi, wilayah]
+    IdentifierParam:
+      name: identifier
+      in: path
+      required: true
+      description: NIK (16 digit), NoKK (16 digit), atau Kode Desa MFD
+      schema: 
+        type: string
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Payload JSON tidak valid"
+
+    SchemaInput:
+      type: object
+      required: [domain, definition]
+      properties:
+        domain: {type: string}
+        definition: 
+          type: object
+          description: "Aturan JSON lengkap untuk validasi metadata DTSEN"
+
+    Schema:
+      allOf:
+        - $ref: '#/components/schemas/SchemaInput'
+        - type: object
+          properties:
+            id: {type: string, format: uuid}
+            version: {type: integer}
+            status: {type: string, enum: [ACTIVE, ARCHIVED]}
+            created_at: {type: string, format: date-time}
+
+    IngestionResponse:
+      type: object
+      properties:
+        status: {type: string, example: "Ingestion Finished"}
+        domain: {type: string}
+        schema: {type: string}
+        stats:
+          type: object
+          properties:
+            total: {type: integer}
+            success: {type: integer}
+            fail: {type: integer}
+        errors:
+          type: array
+          items: {type: string}
+
+    AuditRequest:
+      type: object
+      required: [verdict]
+      properties:
+        nik:
+          type: array
+          items: {type: string}
+          description: Digunakan untuk domain berbasis individu
+        nomor_kartu_keluarga:
+          type: array
+          items: {type: string}
+          description: Digunakan untuk domain berbasis keluarga/rumah tangga
+        kode_kelurahan_desa:
+          type: array
+          items: {type: string}
+          description: Digunakan untuk domain wilayah
+        verdict: 
+          type: integer
+          enum: [1, 2]
+          description: "1 = VALID, 2 = INVALID"
+
+    # --- BASE DATASET (Diwariskan ke Semua Domain DTSEN) ---
+    BaseDataset:
+      type: object
+      properties:
+        id: {type: integer, readOnly: true}
+        version: {type: integer, readOnly: true}
+        source_id: {type: string}
+        is_wali_data: {type: boolean}
+        trust_score: {type: number}
+        reference_date: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        is_deleted: {type: boolean}
+        audit_status: {type: string, enum: [PENDING, VALID, INVALID]}
+        schema_version: {type: string}
+        additional_info: {type: object}
