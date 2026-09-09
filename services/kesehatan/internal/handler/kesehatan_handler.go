@@ -122,6 +122,7 @@ func (h *KesehatanHandler) IngestData(c *fiber.Ctx) error {
 				for fIdx := 0; fIdx < kesehatanType.NumField(); fIdx++ {
 					field := kesehatanType.Field(fIdx)
 					jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+					
 					if key == "pendengeran" { key = "pendengaran" }
 
 					if jsonTag == key {
@@ -173,7 +174,7 @@ func (h *KesehatanHandler) IngestData(c *fiber.Ctx) error {
 			return c.Status(400).JSON(fiber.Map{"error": "Format JSON gagal diparsing"})
 		}
 		
-		
+
 		for i := range dataList {
 			if dataList[i].ReferenceDate.IsZero() {
 				dataList[i].ReferenceDate = refDate
@@ -274,7 +275,12 @@ func (h *KesehatanHandler) UpdateDataset(c *fiber.Ctx) error {
 }
 
 func (h *KesehatanHandler) SoftDeleteDataset(c *fiber.Ctx) error {
-	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil {
+	identifier := c.Params("nik")
+	if identifier == "" {
+		identifier = c.Params("id")
+	}
+
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan (Soft Delete)"})
 	}
 	return c.JSON(fiber.Map{"message": "Data dinonaktifkan (Soft Delete)"})

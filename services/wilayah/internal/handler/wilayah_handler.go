@@ -265,7 +265,12 @@ func (h *WilayahHandler) UpdateDataset(c *fiber.Ctx) error {
 }
 
 func (h *WilayahHandler) SoftDeleteDataset(c *fiber.Ctx) error {
-	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil {
+	identifier := c.Params("kode")
+	if identifier == "" {
+		identifier = c.Params("id")
+	}
+
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal nonaktifkan data"})
 	}
 	return c.JSON(fiber.Map{"message": "Soft delete berhasil"})

@@ -151,6 +151,7 @@ func (h *KesejahteraanHandler) IngestData(c *fiber.Ctx) error {
 		fw, _ := os.Create(tmpPath)
 		io.Copy(fw, file)
 		fw.Close()
+
 		defer os.Remove(tmpPath)
 
 		fr, _ := local.NewLocalFileReader(tmpPath)
@@ -267,7 +268,14 @@ func (h *KesejahteraanHandler) UpdateDataset(c *fiber.Ctx) error {
 }
 
 func (h *KesejahteraanHandler) SoftDeleteDataset(c *fiber.Ctx) error {
-	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) }
+	identifier := c.Params("nokk")
+	if identifier == "" {
+		identifier = c.Params("id")
+	}
+
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil { 
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) 
+	}
 	return c.JSON(fiber.Map{"message": "Data diarsipkan (Soft Delete)"})
 }
 

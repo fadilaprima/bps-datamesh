@@ -278,7 +278,14 @@ func (h *HunianHandler) UpdateDataset(c *fiber.Ctx) error {
 }
 
 func (h *HunianHandler) SoftDeleteDataset(c *fiber.Ctx) error {
-	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) }
+	identifier := c.Params("nokk")
+	if identifier == "" {
+		identifier = c.Params("id")
+	}
+
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil { 
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) 
+	}
 	return c.JSON(fiber.Map{"message": "Data hunian dinonaktifkan"})
 }
 

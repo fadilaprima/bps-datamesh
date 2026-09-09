@@ -115,8 +115,6 @@ func (h *KetenagakerjaanHandler) IngestData(c *fiber.Ctx) error {
 				if idx >= len(headers) { continue }
 				key := strings.ToLower(headers[idx])
 				found := false
-
-				// Alias Mapping Cerdas
 				if key == "nik" { key = "nomor_induk_kependudukan" }
 				if key == "lapangan_usaha_pekerjaan" { key = "lapangan_usaha_dari_pekerjaan_utama" }
 				if key == "kedudukan_pekerjaan" { key = "status_dalam_pekerjaan_utama" }
@@ -276,7 +274,14 @@ func (h *KetenagakerjaanHandler) UpdateDataset(c *fiber.Ctx) error {
 }
 
 func (h *KetenagakerjaanHandler) SoftDeleteDataset(c *fiber.Ctx) error {
-	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) }
+	identifier := c.Params("nik")
+	if identifier == "" {
+		identifier = c.Params("id")
+	}
+
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil { 
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) 
+	}
 	return c.JSON(fiber.Map{"message": "Data dinonaktifkan (Soft Delete)"})
 }
 

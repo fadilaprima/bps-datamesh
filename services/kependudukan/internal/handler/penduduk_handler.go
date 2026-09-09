@@ -36,7 +36,7 @@ func (h *PendudukHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	
 	domain := c.Params("domain", "penduduk")
 	
-	//Nonaktifkan skema yang sedang berjalan menjadi ARCHIVED
+	// [LIFECYCLE] Nonaktifkan skema yang sedang berjalan menjadi ARCHIVED
 	h.Service.Storage.DB.Model(&models.Schema{}).
 		Where("domain = ? AND status = ?", domain, "ACTIVE").
 		Update("status", "ARCHIVED")
@@ -137,7 +137,6 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 					field := pendudukType.Field(fIdx)
 					jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
 
-					// Normalisasi field legacy
 					if key == "nik" {
 						key = "nomor_induk_kependudukan"
 					}
@@ -178,13 +177,12 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 			dataList = append(dataList, p)
 		}
 	} else if strings.HasSuffix(filename, ".parquet") {
-		// Parquet Handling
+		// [PARSER 2] Parquet Handling
 		tmpPath := "temp_penduduk_" + uuid.New().String() + ".parquet"
 		fw, _ := os.Create(tmpPath)
 		io.Copy(fw, file)
 		fw.Close()
 
-		// file temporary langsung dihapus
 		defer os.Remove(tmpPath)
 
 		fr, _ := local.NewLocalFileReader(tmpPath)
@@ -198,13 +196,12 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 			dataList = res
 		}
 	} else {
-		//  JSON Handling
+		// [PARSER 3] JSON Handling
 		body, _ := io.ReadAll(file)
 		if errJson := json.Unmarshal(body, &dataList); errJson != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "Format JSON gagal diparsing"})
 		}
 		
-		// 
 		for i := range dataList {
 			if dataList[i].ReferenceDate.IsZero() {
 				dataList[i].ReferenceDate = refDate
@@ -212,7 +209,6 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 		}
 	}
 
-	// D. Eksekusi Validasi & Simpan
 	success, fail := 0, 0
 	var errorLogs []string
 
@@ -233,7 +229,6 @@ func (h *PendudukHandler) IngestData(c *fiber.Ctx) error {
 			continue
 		}
 
-		// Lapisan 2: Validasi Bisnis 
 		if _, err := h.Service.ProcessIngestion(dataList[i]); err != nil {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NIK %s: %v", dataList[i].NIK, err))
@@ -332,7 +327,12 @@ func (h *PendudukHandler) UpdateDataset(c *fiber.Ctx) error {
 }
 
 func (h *PendudukHandler) SoftDeleteDataset(c *fiber.Ctx) error {
-	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil {
+	identifier := c.Params("nik")
+	if identifier == "" {
+		identifier = c.Params("id")
+	}
+
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal nonaktifkan data"})
 	}
 	return c.JSON(fiber.Map{"message": "Data penduduk berhasil dinonaktifkan (Soft Delete)"})
