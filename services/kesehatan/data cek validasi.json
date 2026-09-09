@@ -1,0 +1,36 @@
+[
+  {
+    "nomor_induk_kependudukan": "3171234500000001",
+    "pbi_nas": "TIDAK",
+    "pbi_pemda": "TIDAK",
+    "kondisi_gizi": "BAIK",
+    "penglihatan": "TIDAK_ADA_KESULITAN",
+    "pendengaran": "TIDAK_ADA_KESULITAN",
+    "berjalan_atau_naik_tangga": "TIDAK_ADA_KESULITAN",
+    "menggunakan_tangan_jari": "TIDAK_ADA_KESULITAN",
+    "belajar_kemampuan_intelektual": "TIDAK_ADA_KESULITAN",
+    "pengendalian_perilaku": "TIDAK_ADA_KESULITAN",
+    "berbicara_komunikasi": "TIDAK_ADA_KESULITAN",
+    "mengurus_diri": "TIDAK_ADA_KESULITAN",
+    "mengingat_berkonsentrasi": "TIDAK_ADA_KESULITAN",
+    "kesedihan_depresi": "TIDAK_ADA_KESULITAN",
+    "penyakit_kronis": "TIDAK_ADA"
+  },
+  {
+    "nomor_induk_kependudukan": "3171234500000002",
+    "pbi_nas": "YA",
+    "pbi_pemda": "TIDAK",
+    "kondisi_gizi": "BAIK",
+    "penglihatan": "SEDIKIT_KESULITAN",
+    "pendengaran": "TIDAK_ADA_KESULITAN",
+    "berjalan_atau_naik_tangga": "TIDAK_ADA_KESULITAN",
+    "menggunakan_tangan_jari": "TIDAK_ADA_KESULITAN",
+    "belajar_kemampuan_intelektual": "TIDAK_ADA_KESULITAN",
+    "pengendalian_perilaku": "TIDAK_ADA_KESULITAN",
+    "berbicara_komunikasi": "TIDAK_ADA_KESULITAN",
+    "mengurus_diri": "TIDAK_ADA_KESULITAN",
+    "mengingat_berkonsentrasi": "SEDIKIT_KESULITAN",
+    "kesedihan_depresi": "TIDAK_ADA_KESULITAN",
+    "penyakit_kronis": "HIPERTENSI"
+  }
+]

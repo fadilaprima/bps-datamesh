@@ -1,0 +1,12 @@
+[
+  {
+    "nomor_kartu_keluarga": "3171000000000001",
+    "sumber_penerangan_utama": "LISTRIK_PLN",
+    "daya_listrik_terpasang": "900_VA"
+  },
+  {
+    "nomor_kartu_keluarga": "3171000000000002",
+    "sumber_penerangan_utama": "LISTRIK_NON_PLN",
+    "daya_listrik_terpasang": "450_VA"
+  }
+]

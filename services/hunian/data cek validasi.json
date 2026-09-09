@@ -1,0 +1,28 @@
+[
+  {
+    "nomor_kartu_keluarga": "3171000000000001",
+    "status_kepemilikan_rumah": "MILIK_SENDIRI",
+    "jenis_lantai_terluas": "MARMER_GRANIT",
+    "luas_lantai": 120,
+    "jenis_dinding_terluas": "TEMBOK",
+    "jenis_atap_terluas": "GENTENG_BETON",
+    "sumber_air_minum_utama": "AIR_KEMASAN",
+    "sumber_penerangan_utama": "LISTRIK_PLN",
+    "fasilitas_bab": "SENDIRI",
+    "jenis_kloset": "LEHER_ANGSA",
+    "pembuangan_akhir_tinja": "TANGKI_SEPTIK"
+  },
+  {
+    "nomor_kartu_keluarga": "3171000000000002",
+    "status_kepemilikan_rumah": "KONTRAK_SEWA",
+    "jenis_lantai_terluas": "KERAMIK",
+    "luas_lantai": 45,
+    "jenis_dinding_terluas": "TEMBOK",
+    "jenis_atap_terluas": "ASBES",
+    "sumber_air_minum_utama": "SUMUR_BOR",
+    "sumber_penerangan_utama": "LISTRIK_PLN",
+    "fasilitas_bab": "BERSAMA",
+    "jenis_kloset": "LEHER_ANGSA",
+    "pembuangan_akhir_tinja": "TANGKI_SEPTIK"
+  }
+]

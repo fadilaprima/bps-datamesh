@@ -1,0 +1,23 @@
+[
+  {
+    "nik": "3171234500000001",
+    "nama_lengkap": "Andi Wirawan",
+    "tanggal_lahir": "1985-08-17",
+    "jenis_kelamin": "L",
+    "status_perkawinan": "KAWIN"
+  },
+  {
+    "nik": "31712345000000", 
+    "nama_lengkap": "Siti Nurbaya",
+    "tanggal_lahir": "1990-12-05",
+    "jenis_kelamin": "P",
+    "status_perkawinan": "BELUM_KAWIN"
+  },
+  {
+    "nik": "3171234500000003",
+    "nama_lengkap": "Budi Santoso",
+    "tanggal_lahir": "2021-03-10",
+    "jenis_kelamin": "PRIA", 
+    "status_perkawinan": "BELUM_KAWIN"
+  }
+]

@@ -1,0 +1,23 @@
+[
+  {
+    "nomor_induk_kependudukan": "3171234500000001",
+    "partisipasi_sekolah": "TIDAK_SEKOLAH_LAGI",
+    "jenjang_tertinggi_yang_diduduki": "S1",
+    "kelas_tertinggi_yang_diduduki": "LULUS",
+    "ijazah_tertinggi_yang_dimiliki": "S1"
+  },
+  {
+    "nomor_induk_kependudukan": "3171234500000002",
+    "partisipasi_sekolah": "MASIH_SEKOLAH",
+    "jenjang_tertinggi_yang_diduduki": "SMA",
+    "kelas_tertinggi_yang_diduduki": "KELAS_11",
+    "ijazah_tertinggi_yang_dimiliki": "SMP"
+  },
+  {
+    "nomor_induk_kependudukan": "3171234500000003",
+    "partisipasi_sekolah": "BELUM_PERNAH_SEKOLAH",
+    "jenjang_tertinggi_yang_diduduki": "TIDAK_ADA",
+    "kelas_tertinggi_yang_diduduki": "TIDAK_ADA",
+    "ijazah_tertinggi_yang_dimiliki": "TIDAK_PUNYA"
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "nomor_induk_kependudukan": "3171234500000001",
+    "status_bekerja": "BEKERJA",
+    "lapangan_usaha_dari_pekerjaan_utama": "INFORMASI_DAN_KOMUNIKASI",
+    "status_dalam_pekerjaan_utama": "BURUH_KARYAWAN_PEGAWAI",
+    "kepemilikan_usaha": "TIDAK_MEMILIKI",
+    "jumlah_usaha": 0,
+    "lapangan_usaha_dari_usaha_utama": "TIDAK_ADA",
+    "jumlah_pekerja_yang_dibayar_dari_usaha_utama": 0,
+    "jumlah_pekerja_yang_tidak_dibayar_dari_usaha_utama": 0,
+    "omzet_usaha_utama": "0"
+  },
+  {
+    "nomor_induk_kependudukan": "3171234500000002",
+    "status_bekerja": "BEKERJA",
+    "lapangan_usaha_dari_pekerjaan_utama": "PERDAGANGAN_BESAR_ECERAN",
+    "status_dalam_pekerjaan_utama": "BERUSAHA_DIBANTU_BURUH_TETAP",
+    "kepemilikan_usaha": "MEMILIKI",
+    "jumlah_usaha": 1,
+    "lapangan_usaha_dari_usaha_utama": "PERDAGANGAN_ECERAN",
+    "jumlah_pekerja_yang_dibayar_dari_usaha_utama": 3,
+    "jumlah_pekerja_yang_tidak_dibayar_dari_usaha_utama": 1,
+    "omzet_usaha_utama": "15000000"
+  },
+  {
+    "nomor_induk_kependudukan": "3171234500000003",
+    "status_bekerja": "TIDAK_BEKERJA",
+    "lapangan_usaha_dari_pekerjaan_utama": "TIDAK_ADA",
+    "status_dalam_pekerjaan_utama": "TIDAK_ADA",
+    "kepemilikan_usaha": "TIDAK_MEMILIKI",
+    "jumlah_usaha": 0,
+    "lapangan_usaha_dari_usaha_utama": "TIDAK_ADA",
+    "jumlah_pekerja_yang_dibayar_dari_usaha_utama": 0,
+    "jumlah_pekerja_yang_tidak_dibayar_dari_usaha_utama": 0,
+    "omzet_usaha_utama": "0"
+  }
+]
