@@ -260,21 +260,19 @@ func (h *WilayahHandler) UpdateDataset(c *fiber.Ctx) error {
 	}
 
 	version, err := h.Service.ProcessManualUpdate(c.Params("kode"), payload)
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
 	return c.JSON(fiber.Map{"message": "Versi baru dibuat (Koreksi)", "version": version})
 }
 
 func (h *WilayahHandler) SoftDeleteDataset(c *fiber.Ctx) error {
-	identifier := c.Params("kode")
-	if identifier == "" {
-		identifier = c.Params("id")
-	}
-
-	if err := h.Service.Storage.SoftDelete(identifier); err != nil {
+	if err := h.Service.Storage.SoftDelete(c.Params("id")); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal nonaktifkan data"})
 	}
 	return c.JSON(fiber.Map{"message": "Soft delete berhasil"})
 }
+
 
 // ==========================================
 // 5. GOVERNANCE & AUDIT LOGIC
@@ -282,7 +280,7 @@ func (h *WilayahHandler) SoftDeleteDataset(c *fiber.Ctx) error {
 func (h *WilayahHandler) GetAuditSamples(c *fiber.Ctx) error {
 	limit, err := strconv.Atoi(c.Query("limit", "10"))
 	if err != nil { return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"}) }
-
+	
 	results, err := h.Service.Storage.GetAuditSamples(limit) 
 	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"}) }
 	

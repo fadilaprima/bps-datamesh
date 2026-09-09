@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"hunian/internal/app"
-	"hunian/models"
+	"energi/internal/app"
+	"energi/models"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -20,20 +20,20 @@ import (
 	"github.com/xitongsys/parquet-go/reader"
 )
 
-type HunianHandler struct {
-	Service app.HunianService
+type EnergiHandler struct {
+	Service app.EnergiService
 }
 
 // ==========================================
 // 1. METADATA & SCHEMA MANAGEMENT
 // ==========================================
-func (h *HunianHandler) CreateSchemaHandler(c *fiber.Ctx) error {
+func (h *EnergiHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	var input models.Schema
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Payload JSON tidak valid"})
 	}
 
-	domain := c.Params("domain", "hunian")
+	domain := c.Params("domain", "energi")
 	h.Service.Storage.DB.Model(&models.Schema{}).
 		Where("domain = ? AND status = ?", domain, "ACTIVE").
 		Update("status", "ARCHIVED")
@@ -48,15 +48,15 @@ func (h *HunianHandler) CreateSchemaHandler(c *fiber.Ctx) error {
 	input.CreatedAt = time.Now()
 
 	if err := h.Service.Storage.DB.Create(&input).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Gagal simpan skema hunian"})
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal simpan skema energi"})
 	}
 	return c.Status(201).JSON(input)
 }
 
-func (h *HunianHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
+func (h *EnergiHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 	var schema models.Schema
-	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "hunian", "ACTIVE").Order("version desc").First(&schema).Error; err != nil {
-		return c.Status(404).JSON(fiber.Map{"error": "Skema hunian aktif tidak ditemukan"})
+	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "energi", "ACTIVE").Order("version desc").First(&schema).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Skema energi aktif tidak ditemukan"})
 	}
 	return c.JSON(schema)
 }
@@ -64,9 +64,9 @@ func (h *HunianHandler) GetLatestSchemaHandler(c *fiber.Ctx) error {
 // ==========================================
 // 2. DATA INGESTION PIPELINE (HYBRID)
 // ==========================================
-func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
+func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 	var activeSchema models.Schema
-	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "hunian", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {
+	if err := h.Service.Storage.DB.Where("domain = ? AND status = ?", "energi", "ACTIVE").Order("version desc").First(&activeSchema).Error; err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Metadata belum siap, ingest ditolak"})
 	}
 
@@ -75,7 +75,7 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "File dokumen tidak ditemukan"})
 	}
 
-	sourceIDStr := c.FormValue("source_id", "5")
+	sourceIDStr := c.FormValue("source_id", "4")
 	sourceIDInt, _ := strconv.Atoi(sourceIDStr)
 	sourceName := "LAINNYA"
 	isWali := false
@@ -93,7 +93,7 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 	file, _ := fileHeader.Open()
 	defer file.Close()
 
-	var dataList []models.RekamHunian
+	var dataList []models.RekamEnergi
 	filename := strings.ToLower(fileHeader.Filename)
 
 	if strings.HasSuffix(filename, ".csv") {
@@ -103,12 +103,12 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 		if len(records) < 2 { return c.Status(400).JSON(fiber.Map{"error": "CSV kosong"}) }
 
 		headers := records[0]
-		hType := reflect.TypeOf(models.RekamHunian{})
+		eType := reflect.TypeOf(models.RekamEnergi{})
 
 		for i, rec := range records {
 			if i == 0 { continue }
 			extraData := make(map[string]interface{})
-			p := models.RekamHunian{ReferenceDate: refDate}
+			p := models.RekamEnergi{ReferenceDate: refDate}
 			pValue := reflect.ValueOf(&p).Elem()
 
 			for idx, val := range rec {
@@ -116,19 +116,13 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 				key := strings.ToLower(headers[idx])
 				found := false
 
+				// Alias mapping cerdas
 				if key == "no_kk" || key == "nkk" { key = "nomor_kartu_keluarga" }
-				if key == "status_kepemilikan" { key = "status_kepemilikan_rumah" }
-				if key == "jenis_lantai" { key = "jenis_lantai_terluas" }
-				if key == "jenis_dinding" { key = "jenis_dinding_terluas" }
-				if key == "jenis_atap" { key = "jenis_atap_terluas" }
-				if key == "sumber_air_minum" || key == "air_minum" { key = "sumber_air_minum_utama" }
-				if key == "sumber_penerangan" || key == "penerangan" { key = "sumber_penerangan_utama" }
-				if key == "bab" { key = "fasilitas_bab" }
-				if key == "kloset" { key = "jenis_kloset" }
-				if key == "pembuangan_tinja" { key = "pembuangan_akhir_tinja" }
+				if key == "id_pelanggan" || key == "id_pln" { key = "id_pelanggan_pln" }
+				if key == "daya_listrik" { key = "daya_terpasang" }
 
-				for fIdx := 0; fIdx < hType.NumField(); fIdx++ {
-					field := hType.Field(fIdx)
+				for fIdx := 0; fIdx < eType.NumField(); fIdx++ {
+					field := eType.Field(fIdx)
 					jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
 					if jsonTag == key {
 						found = true
@@ -155,18 +149,19 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 		}
 	} else if strings.HasSuffix(filename, ".parquet") {
 		// [PARSER 2] Parquet Handling
-		tmpPath := "temp_hun_" + uuid.New().String() + ".parquet"
+		tmpPath := "temp_enr_" + uuid.New().String() + ".parquet"
 		fw, _ := os.Create(tmpPath)
 		io.Copy(fw, file)
 		fw.Close()
 
+		// PERBAIKAN: Mencegah storage leak
 		defer os.Remove(tmpPath)
 
 		fr, _ := local.NewLocalFileReader(tmpPath)
-		pr, errP := reader.NewParquetReader(fr, new(models.RekamHunian), 4)
+		pr, errP := reader.NewParquetReader(fr, new(models.RekamEnergi), 4)
 		if errP == nil {
 			num := int(pr.GetNumRows())
-			res := make([]models.RekamHunian, num)
+			res := make([]models.RekamEnergi, num)
 			pr.Read(&res)
 			pr.ReadStop()
 			fr.Close()
@@ -179,6 +174,7 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 			return c.Status(400).JSON(fiber.Map{"error": "Format JSON gagal diparsing"})
 		}
 		
+		// PERBAIKAN: Paksa set ReferenceDate agar data tidak ditolak karena "usang"
 		for i := range dataList {
 			if dataList[i].ReferenceDate.IsZero() {
 				dataList[i].ReferenceDate = refDate
@@ -186,6 +182,7 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 		}
 	}
 
+	// --- Eksekusi Validasi & Simpan ---
 	success, fail := 0, 0
 	var errorLogs []string
 
@@ -194,15 +191,16 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 		dataList[i].IsWaliData = isWali
 		dataList[i].AuditStatus = "PENDING"
 		dataList[i].SchemaVersion = fmt.Sprintf("v%d", activeSchema.Version)
-
+		
 		if dataList[i].TrustScore == 0 { dataList[i].TrustScore = trustScore }
 
-		if ok, msg := h.Service.ValidateHunianMetadata(dataList[i], activeSchema.Definition); !ok {
+		if ok, msg := h.Service.ValidateEnergiMetadata(dataList[i], activeSchema.Definition); !ok {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %s", dataList[i].NoKK, msg))
 			continue
 		}
 
+		// [HARD FAIL] Jika tertangkap error logika, status gagal dan tampilkan pesan ke user
 		if _, err := h.Service.ProcessIngestion(dataList[i]); err != nil {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %v", dataList[i].NoKK, err))
@@ -213,7 +211,7 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"status": "Ingestion Finished",
-		"domain": "hunian",
+		"domain": "energi",
 		"schema": activeSchema.Name + " v" + fmt.Sprint(activeSchema.Version),
 		"stats":  fiber.Map{"total": len(dataList), "success": success, "fail": fail},
 		"errors": errorLogs,
@@ -223,16 +221,16 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 // ==========================================
 // 3. MONITORING & TRACKING
 // ==========================================
-func (h *HunianHandler) GetValidationStatus(c *fiber.Ctx) error {
+func (h *EnergiHandler) GetValidationStatus(c *fiber.Ctx) error {
 	result, err := h.Service.Storage.GetLatestByNoKK(c.Params("nokk"))
 	status := "PENDING"
 	if err == nil && result != nil { status = result.AuditStatus }
-	return c.JSON(fiber.Map{"nokk": c.Params("nokk"), "status": status, "schema": "DTSEN-HUN-ACTIVE"})
+	return c.JSON(fiber.Map{"nokk": c.Params("nokk"), "status": status, "schema": "DTSEN-ENERGI-ACTIVE"})
 }
 
-func (h *HunianHandler) GetScoring(c *fiber.Ctx) error {
+func (h *EnergiHandler) GetScoring(c *fiber.Ctx) error {
 	result, err := h.Service.Storage.GetLatestByNoKK(c.Params("nokk"))
-	if err != nil || result == nil { return c.Status(404).JSON(fiber.Map{"error": "Data hunian tidak ditemukan"}) }
+	if err != nil || result == nil { return c.Status(404).JSON(fiber.Map{"error": "Data energi tidak ditemukan"}) }
 	return c.JSON(fiber.Map{
 		"no_kk": result.NoKK, "trust_score": result.TrustScore,
 		"is_walidata": result.IsWaliData, "audit_status": result.AuditStatus,
@@ -240,7 +238,7 @@ func (h *HunianHandler) GetScoring(c *fiber.Ctx) error {
 	})
 }
 
-func (h *HunianHandler) GetProgress(c *fiber.Ctx) error {
+func (h *EnergiHandler) GetProgress(c *fiber.Ctx) error {
 	count, err := h.Service.Storage.CountByNoKK(c.Params("nokk"))
 	status := "NOT_FOUND"
 	if err == nil && count > 0 { status = "COMPLETED_IN_MESH" }
@@ -250,7 +248,7 @@ func (h *HunianHandler) GetProgress(c *fiber.Ctx) error {
 // ==========================================
 // 4. DATASET MAINTENANCE (CRUD)
 // ==========================================
-func (h *HunianHandler) GetAllDatasets(c *fiber.Ctx) error {
+func (h *EnergiHandler) GetAllDatasets(c *fiber.Ctx) error {
 	fields := c.Query("fields")
 	var fieldList []string
 	if fields != "" { fieldList = strings.Split(fields, ",") }
@@ -259,7 +257,7 @@ func (h *HunianHandler) GetAllDatasets(c *fiber.Ctx) error {
 	return c.JSON(results)
 }
 
-func (h *HunianHandler) GetDatasetDetail(c *fiber.Ctx) error {
+func (h *EnergiHandler) GetDatasetDetail(c *fiber.Ctx) error {
 	fields := c.Query("fields")
 	var fieldList []string
 	if fields != "" { fieldList = strings.Split(fields, ",") }
@@ -268,48 +266,46 @@ func (h *HunianHandler) GetDatasetDetail(c *fiber.Ctx) error {
 	return c.JSON(result)
 }
 
-func (h *HunianHandler) UpdateDataset(c *fiber.Ctx) error {
-	var payload models.RekamHunian
-	if err := c.BodyParser(&payload); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"}) }
+func (h *EnergiHandler) UpdateDataset(c *fiber.Ctx) error {
+	var payload models.RekamEnergi
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
+	}
 	version, err := h.Service.ProcessManualUpdate(c.Params("nokk"), payload)
 	if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
-	return c.JSON(fiber.Map{"message": "Versi baru hunian dibuat", "version": version})
+	return c.JSON(fiber.Map{"message": "Versi baru energi dibuat", "version": version})
 }
 
-func (h *HunianHandler) SoftDeleteDataset(c *fiber.Ctx) error {
+func (h *EnergiHandler) SoftDeleteDataset(c *fiber.Ctx) error {
 	identifier := c.Params("nokk")
 	if identifier == "" {
 		identifier = c.Params("id")
 	}
 
-	if err := h.Service.Storage.SoftDelete(identifier); err != nil { 
-		return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) 
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"})
 	}
-	return c.JSON(fiber.Map{"message": "Data hunian dinonaktifkan"})
+	return c.JSON(fiber.Map{"message": "Data energi dinonaktifkan"})
 }
 
 // ==========================================
 // 5. GOVERNANCE & AUDIT LOGIC
 // ==========================================
-func (h *HunianHandler) GetAuditSamples(c *fiber.Ctx) error {
+func (h *EnergiHandler) GetAuditSamples(c *fiber.Ctx) error {
 	limit, err := strconv.Atoi(c.Query("limit", "10"))
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Limit harus berupa angka"})
 	}
 
-	results, err := h.Service.Storage.GetAuditSamples(limit) 
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"})
-	}
+	results, err := h.Service.Storage.GetAuditSamples(limit)
+	if err != nil { return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data audit"}) }
 	
-	if len(results) == 0 {
-		return c.JSON(fiber.Map{"message": "Tidak ada data hunian terbaru yang perlu diaudit."})
-	}
+	if len(results) == 0 { return c.JSON(fiber.Map{"message": "Tidak ada data energi terbaru yang perlu diaudit."}) }
 	
 	return c.JSON(results)
 }
 
-func (h *HunianHandler) SubmitAuditDecision(c *fiber.Ctx) error {
+func (h *EnergiHandler) SubmitAuditDecision(c *fiber.Ctx) error {
 	var input struct {
 		NoKK    []string `json:"nomor_kartu_keluarga"`
 		Verdict int      `json:"verdict"`
@@ -319,5 +315,5 @@ func (h *HunianHandler) SubmitAuditDecision(c *fiber.Ctx) error {
 
 	verdictText, err := h.Service.ProcessAuditDecision(input.NoKK, input.Verdict)
 	if err != nil { return c.Status(400).JSON(fiber.Map{"error": err.Error()}) }
-	return c.JSON(fiber.Map{"message": fmt.Sprintf("Audit hunian selesai. %d KK diubah menjadi %s", len(input.NoKK), verdictText)})
+	return c.JSON(fiber.Map{"message": fmt.Sprintf("Audit energi selesai. %d KK diubah menjadi %s", len(input.NoKK), verdictText)})
 }

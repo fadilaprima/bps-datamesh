@@ -126,11 +126,13 @@ func (s *WilayahService) ProcessManualUpdate(kodeDesa string, newData models.Mas
 		return 0, fmt.Errorf("data asli tidak ditemukan")
 	}
 
+	// LOGIKA RESET SCD TYPE 2
 	newData.ID = 0
 	newData.Version = oldData.Version + 1
 	newData.AuditStatus = "PENDING"
 	newData.UpdatedAt = time.Now()
 
+	// Skor kembali ke base (60 Sistem + 20 Sumber jika Walidata)
 	if newData.IsWaliData {
 		newData.TrustScore = 80.0
 	} else {
