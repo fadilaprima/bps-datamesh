@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"strings"
+
 	"hunian/models"
 	"gorm.io/gorm"
 )
@@ -67,10 +69,18 @@ func (s *HunianStorage) GetDetailWithFields(noKK string, fields []string) (*mode
 }
 
 func (s *HunianStorage) SoftDelete(identifier string) error {
-	if len(identifier) == 16 {
-		return s.DB.Model(&models.RekamHunian{}).Where("nomor_kartu_keluarga = ?", identifier).Update("is_deleted", true).Error
+	cleanID := strings.TrimSpace(identifier)
+
+	if len(cleanID) == 16 {
+		return s.DB.Model(&models.RekamHunian{}).
+			Where("nomor_kartu_keluarga = ?", cleanID).
+			Update("is_deleted", true).Error
 	}
-	return s.DB.Model(&models.RekamHunian{}).Where("id = ?", identifier).Update("is_deleted", true).Error
+	
+	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
+	return s.DB.Model(&models.RekamHunian{}).
+		Where("id = ?", cleanID).
+		Update("is_deleted", true).Error
 }
 
 // GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING

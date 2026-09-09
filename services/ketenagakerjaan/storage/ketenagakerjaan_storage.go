@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"strings"
+
 	"ketenagakerjaan/models"
 	"gorm.io/gorm"
 )
@@ -61,10 +63,18 @@ func (s *KetenagakerjaanStorage) GetDetailWithFields(nik string, fields []string
 }
 
 func (s *KetenagakerjaanStorage) SoftDelete(identifier string) error {
-	if len(identifier) == 16 {
-		return s.DB.Model(&models.RekamKetenagakerjaan{}).Where("nomor_induk_kependudukan = ?", identifier).Update("is_deleted", true).Error
+	cleanID := strings.TrimSpace(identifier)
+
+	if len(cleanID) == 16 {
+		return s.DB.Model(&models.RekamKetenagakerjaan{}).
+			Where("nomor_induk_kependudukan = ?", cleanID).
+			Update("is_deleted", true).Error
 	}
-	return s.DB.Model(&models.RekamKetenagakerjaan{}).Where("id = ?", identifier).Update("is_deleted", true).Error
+	
+	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
+	return s.DB.Model(&models.RekamKetenagakerjaan{}).
+		Where("id = ?", cleanID).
+		Update("is_deleted", true).Error
 }
 
 // GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING

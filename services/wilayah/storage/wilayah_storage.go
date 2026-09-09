@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"strings"
 	"wilayah/models"
+
 	"gorm.io/gorm"
 )
 
@@ -62,10 +64,19 @@ func (s *WilayahStorage) GetDetailWithFields(kode string, fields []string) (*mod
 
 // 3. MAINTENANCE (LIFECYCLE MANAGEMENT)
 func (s *WilayahStorage) SoftDelete(identifier string) error {
-	if len(identifier) > 5 { 
-		return s.DB.Model(&models.MasterWilayah{}).Where("kode_kelurahan_desa = ?", identifier).Update("is_deleted", true).Error
+	cleanID := strings.TrimSpace(identifier)
+
+	//cek digit 
+	if len(cleanID) == 10 { 
+		return s.DB.Model(&models.MasterWilayah{}).
+			Where("kode_kelurahan_desa = ?", cleanID).
+			Update("is_deleted", true).Error
 	}
-	return s.DB.Model(&models.MasterWilayah{}).Where("id = ?", identifier).Update("is_deleted", true).Error
+	
+	// Jika bukan 10 digit, eksekusi hapus berdasarkan ID absolut
+	return s.DB.Model(&models.MasterWilayah{}).
+		Where("id = ?", cleanID).
+		Update("is_deleted", true).Error
 }
 
 // 4. GOVERNANCE & AUDIT (QUALITY CONTROL)

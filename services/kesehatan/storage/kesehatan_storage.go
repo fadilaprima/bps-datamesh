@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"strings"
+
 	"kesehatan/models"
 	"gorm.io/gorm"
 )
@@ -67,10 +69,14 @@ func (s *KesehatanStorage) GetDetailWithFields(nik string, fields []string) (*mo
 }
 
 func (s *KesehatanStorage) SoftDelete(identifier string) error {
-	if len(identifier) == 16 {
-		return s.DB.Model(&models.RekamKesehatan{}).Where("nomor_induk_kependudukan = ?", identifier).Update("is_deleted", true).Error
+	cleanID := strings.TrimSpace(identifier)
+
+	if len(cleanID) == 16 {
+		return s.DB.Model(&models.RekamKesehatan{}).Where("nomor_induk_kependudukan = ?", cleanID).Update("is_deleted", true).Error
 	}
-	return s.DB.Model(&models.RekamKesehatan{}).Where("id = ?", identifier).Update("is_deleted", true).Error
+	
+	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
+	return s.DB.Model(&models.RekamKesehatan{}).Where("id = ?", cleanID).Update("is_deleted", true).Error
 }
 
 func (s *KesehatanStorage) UpdateAuditStatus(id string, status string) error {

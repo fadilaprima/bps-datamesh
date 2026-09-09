@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"strings"
+
 	"kesejahteraan/models"
 	"gorm.io/gorm"
 )
@@ -38,12 +40,10 @@ func (s *KesejahteraanStorage) GetBySubmission(subID string) ([]models.RekamKese
 func (s *KesejahteraanStorage) GetFetchWithFields(fields []string) ([]models.RekamKesejahteraan, error) {
 	var results []models.RekamKesejahteraan
 	
-	
 	subQuery := s.DB.Model(&models.RekamKesejahteraan{}).
 		Select("MAX(id)").
 		Where("is_deleted = ?", false).
 		Group("nomor_kartu_keluarga")
-	
 	
 	query := s.DB.Where("id IN (?)", subQuery)
 
@@ -67,10 +67,18 @@ func (s *KesejahteraanStorage) GetDetailWithFields(noKK string, fields []string)
 }
 
 func (s *KesejahteraanStorage) SoftDelete(identifier string) error {
-	if len(identifier) == 16 {
-		return s.DB.Model(&models.RekamKesejahteraan{}).Where("nomor_kartu_keluarga = ?", identifier).Update("is_deleted", true).Error
+	cleanID := strings.TrimSpace(identifier)
+
+	if len(cleanID) == 16 {
+		return s.DB.Model(&models.RekamKesejahteraan{}).
+			Where("nomor_kartu_keluarga = ?", cleanID).
+			Update("is_deleted", true).Error
 	}
-	return s.DB.Model(&models.RekamKesejahteraan{}).Where("id = ?", identifier).Update("is_deleted", true).Error
+	
+	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
+	return s.DB.Model(&models.RekamKesejahteraan{}).
+		Where("id = ?", cleanID).
+		Update("is_deleted", true).Error
 }
 
 func (s *KesejahteraanStorage) UpdateAuditStatus(id string, status string) error {

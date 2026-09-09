@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"strings"
+
 	"pendidikan/models"
 	"gorm.io/gorm"
 )
@@ -37,10 +39,18 @@ func (s *PendidikanStorage) GetBySubmission(subID string) ([]models.RiwayatPendi
 
 // SoftDelete bisa menerima NIK (16 digit) untuk hapus semua versi, atau ID spesifik
 func (s *PendidikanStorage) SoftDelete(identifier string) error {
-	if len(identifier) == 16 {
-		return s.DB.Model(&models.RiwayatPendidikan{}).Where("nomor_induk_kependudukan = ?", identifier).Update("is_deleted", true).Error
+	cleanID := strings.TrimSpace(identifier)
+
+	if len(cleanID) == 16 {
+		return s.DB.Model(&models.RiwayatPendidikan{}).
+			Where("nomor_induk_kependudukan = ?", cleanID).
+			Update("is_deleted", true).Error
 	}
-	return s.DB.Model(&models.RiwayatPendidikan{}).Where("id = ?", identifier).Update("is_deleted", true).Error
+	
+	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
+	return s.DB.Model(&models.RiwayatPendidikan{}).
+		Where("id = ?", cleanID).
+		Update("is_deleted", true).Error
 }
 
 func (s *PendidikanStorage) GetFetchWithFields(fields []string) ([]models.RiwayatPendidikan, error) {
