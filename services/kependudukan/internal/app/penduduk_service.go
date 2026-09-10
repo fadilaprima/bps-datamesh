@@ -68,15 +68,15 @@ func (s *PendudukService) ValidateCrossDomainAPI(p *models.Penduduk) error {
 	umur := hitungUmur(p.TglLahir)
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// A. Domain Pendidikan 
+	// A. Domain Pendidikan
 	if umur >= 0 && umur < 18 {
 		baseURLPendidikan := os.Getenv("URL_PENDIDIKAN")
 		if baseURLPendidikan != "" {
 			targetURL := fmt.Sprintf("%s/api/v1/domains/pendidikan/datasets/%s", baseURLPendidikan, p.NIK)
 			resp, err := client.Get(targetURL)
-			
+
 			if err != nil {
-				// Kurangi skor jika servis mati/timeout. 
+				// Kurangi skor jika servis mati/timeout.
 				fmt.Printf("[WARNING] Servis Pendidikan down, NIK %s tidak tervalidasi. Trust Score -10\n", p.NIK)
 				p.TrustScore -= 10.0
 			} else {
@@ -102,13 +102,13 @@ func (s *PendudukService) ValidateCrossDomainAPI(p *models.Penduduk) error {
 		}
 	}
 
-	// B. Domain Ketenagakerjaan 
+	// B. Domain Ketenagakerjaan
 	if umur >= 0 && umur < 10 {
 		baseURLKetenagakerjaan := os.Getenv("URL_KETENAGAKERJAAN")
 		if baseURLKetenagakerjaan != "" {
 			targetURL := fmt.Sprintf("%s/api/v1/domains/ketenagakerjaan/datasets/%s", baseURLKetenagakerjaan, p.NIK)
 			resp, err := client.Get(targetURL)
-			
+
 			if err != nil {
 				fmt.Printf("[WARNING] Servis Ketenagakerjaan down, NIK %s tidak tervalidasi. Trust Score -10\n", p.NIK)
 				p.TrustScore -= 10.0
@@ -256,28 +256,63 @@ func (s *PendudukService) ProcessIngestion(p models.Penduduk) (string, error) {
 		}
 		return fmt.Sprintf("Sukses v%d (Update)", p.Version), nil
 	}
-	
+
 	return "Abaikan", fmt.Errorf("data usang atau otoritas lebih rendah")
 }
 
 // ==========================================
 // 5. UPDATE & AUDIT LOGIC
 // ==========================================
-func (s *PendudukService) ProcessManualUpdate(nik string, newData models.Penduduk) (int, error) {
+func (s *PendudukService) ProcessManualUpdate(nik string, incomingData models.Penduduk) (int, error) {
 	oldData, err := s.Storage.GetLatestByNIK(nik)
 	if err != nil || oldData == nil {
 		return 0, fmt.Errorf("data asli tidak ditemukan")
 	}
-	newData.ID = 0
-	newData.Version = oldData.Version + 1
-	newData.AuditStatus = "PENDING"
-	newData.UpdatedAt = time.Now()
-	newData.TrustScore = 60.0
-	if newData.IsWaliData {
-		newData.TrustScore = 80.0
+
+	// 1. Kloning Data Lama
+	newRecord := *oldData
+	newRecord.ID = 0
+	newRecord.Version = oldData.Version + 1
+	newRecord.AuditStatus = "PENDING"
+	newRecord.UpdatedAt = time.Now()
+
+	// 2. Pemotongan Skor Penalti Manual (-20)
+	newRecord.TrustScore = oldData.TrustScore - 20.0
+	if newRecord.TrustScore < 0 {
+		newRecord.TrustScore = 0
 	}
-	errCreate := s.Storage.Create(&newData)
-	return newData.Version, errCreate
+
+	// 3. TIMPA PARSIAL OTOMATIS (Dinamis / No Hardcode!)
+	valIncoming := reflect.ValueOf(incomingData)
+	valNew := reflect.ValueOf(&newRecord).Elem()
+
+	for i := 0; i < valIncoming.NumField(); i++ {
+		field := valIncoming.Type().Field(i)
+		fieldName := field.Name
+
+		// Kunci / Amankan field sistem agar tidak ter-overwrite oleh payload sembarangan
+		if fieldName == "ID" || fieldName == "Version" || fieldName == "AuditStatus" ||
+			fieldName == "UpdatedAt" || fieldName == "TrustScore" || fieldName == "ReferenceDate" || fieldName == "CreatedAt" {
+			continue
+		}
+
+		incomingField := valIncoming.Field(i)
+		newField := valNew.Field(i)
+
+		// Jika field dari Postman ada isinya (bukan string "", int 0, dst), maka timpa ke newRecord
+		if newField.CanSet() && !incomingField.IsZero() {
+			newField.Set(incomingField)
+		}
+	}
+
+	// 4. Simpan Versi Baru
+	if errCreate := s.Storage.Create(&newRecord); errCreate != nil {
+		return 0, fmt.Errorf("gagal menyimpan data baru: %v", errCreate)
+	}
+
+	// 5. Matikan Versi Lama (Soft Delete)
+	_ = s.Storage.SoftDelete(fmt.Sprintf("%d", oldData.ID))
+	return newRecord.Version, nil
 }
 
 func (s *PendudukService) ProcessAuditDecision(nikList []string, verdict int) (string, error) {

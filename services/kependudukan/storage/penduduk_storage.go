@@ -40,13 +40,19 @@ func (s *PendudukStorage) GetBySubmission(sourceID string) ([]models.Penduduk, e
 
 // SoftDelete bisa menerima NIK (16 digit) untuk hapus semua versi, atau ID spesifik
 func (s *PendudukStorage) SoftDelete(identifier string) error {
-	// PERBAIKAN: Sapu bersih spasi gaib dari Postman
 	cleanID := strings.TrimSpace(identifier)
 
+	// Jika panjang identik dengan NIK (16 digit)
 	if len(cleanID) == 16 {
-		return s.DB.Model(&models.Penduduk{}).Where("nomor_induk_kependudukan = ?", cleanID).Update("is_deleted", true).Error
+		return s.DB.Model(&models.Penduduk{}).
+			Where("nomor_induk_kependudukan = ?", cleanID).
+			Update("is_deleted", true).Error
 	}
-	return s.DB.Model(&models.Penduduk{}).Where("id = ?", cleanID).Update("is_deleted", true).Error
+	
+	// Jika bukan 16 digit, eksekusi menggunakan ID absolut database
+	return s.DB.Model(&models.Penduduk{}).
+		Where("id = ?", cleanID).
+		Update("is_deleted", true).Error
 }
 
 func (s *PendudukStorage) GetFetchWithFields(fields []string) ([]models.Penduduk, error) {
