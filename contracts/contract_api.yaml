@@ -270,18 +270,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              description: Payload data sesuai skema domain
+              $ref: '#/components/schemas/UpdateDatasetRequest'
       responses:
         '200':
           description: Update berhasil, versi baru di-generate
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message: {type: string}
-                  version: {type: integer}
+                $ref: '#/components/schemas/UpdateDatasetResponse'
         '400':
           description: Payload tidak valid
           content:
@@ -461,7 +457,30 @@ components:
           enum: [1, 2]
           description: "1 = VALID, 2 = INVALID"
 
-    # --- BASE DATASET (Diwariskan ke Semua Domain DTSEN) ---
+    UpdateDatasetRequest:
+      type: object
+      required: [data, correction_note]
+      properties:
+        data:
+          type: object
+          description: "Key-value pair berisi field dan value spesifik yang ingin diupdate"
+          example: {"pendapatan_bulanan": 4500000}
+        correction_note:
+          type: string
+          description: "Catatan atau alasan koreksi pembaruan data"
+          example: "Verifikasi lapangan"
+          
+    UpdateDatasetResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Versi baru di-generate dan menunggu validasi ulang."
+        version:
+          type: integer
+          example: 2
+
+    # BASE DATASET (Diwariskan ke Semua Domain DTSEN)
     BaseDataset:
       type: object
       properties:
