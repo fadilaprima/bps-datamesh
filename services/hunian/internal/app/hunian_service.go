@@ -30,7 +30,7 @@ var SourceMap = map[int]SourceConfig{
 	1: {Name: "BPS", IsWali: true},
 	2: {Name: "PUPR", IsWali: true},
 	3: {Name: "PKP", IsWali: true},
-	5: {Name: "LAINNYA", IsWali: false},
+	4: {Name: "LAINNYA", IsWali: false},
 }
 
 var AuditMap = map[int]string{

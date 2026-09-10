@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	"strconv"
 
 	"kesehatan/models"
 	"kesehatan/storage"
@@ -56,12 +55,12 @@ func (s *KesehatanService) ValidateInternalKesehatan(k *models.RekamKesehatan) e
 func (s *KesehatanService) ValidateCrossDomainAPI(k *models.RekamKesehatan) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// A. Domain Kependudukan 
+	// A. Domain Kependudukan
 	baseURLKependudukan := os.Getenv("URL_KEPENDUDUKAN")
 	if baseURLKependudukan != "" {
 		targetURL := fmt.Sprintf("%s/api/v1/domains/penduduk/datasets/%s", baseURLKependudukan, k.NIK)
 		resp, err := client.Get(targetURL)
-		
+
 		if err != nil {
 			fmt.Printf("[WARNING] Servis Kependudukan down, NIK %s tidak tervalidasi penuh. Trust Score -10\n", k.NIK)
 			k.TrustScore -= 10.0
@@ -70,7 +69,7 @@ func (s *KesehatanService) ValidateCrossDomainAPI(k *models.RekamKesehatan) erro
 			if resp.StatusCode == 200 {
 				body, _ := io.ReadAll(resp.Body)
 				var result map[string]interface{}
-				
+
 				if errJson := json.Unmarshal(body, &result); errJson == nil {
 					tglLahir := fmt.Sprintf("%v", result["tanggal_lahir"])
 
@@ -111,10 +110,12 @@ func (s *KesehatanService) ValidateKesehatanMetadata(k models.RekamKesehatan, de
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
-		if jsonTag == "" || jsonTag == "-" { continue }
-		
+		if jsonTag == "" || jsonTag == "-" {
+			continue
+		}
+
 		fixedFields[jsonTag] = true
-		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface()) 
+		fieldValue := fmt.Sprintf("%v", val.Field(i).Interface())
 
 		if r, ok := rules[jsonTag].(map[string]interface{}); ok {
 			if r["required"] == true && strings.TrimSpace(fieldValue) == "" {
@@ -133,7 +134,9 @@ func (s *KesehatanService) ValidateKesehatanMetadata(k models.RekamKesehatan, de
 
 	for field, rule := range rules {
 		r, ok := rule.(map[string]interface{})
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 
 		if r["required"] == true {
 			if !fixedFields[field] {
@@ -176,7 +179,7 @@ func (s *KesehatanService) ProcessIngestion(k models.RekamKesehatan) (string, er
 	isHigherAuthority := k.ReferenceDate.Equal(last.ReferenceDate) && k.IsWaliData && !last.IsWaliData
 
 	if isNewer || isHigherAuthority {
-		k.ID = 0 
+		k.ID = 0
 		k.Version = last.Version + 1
 		k.AuditStatus = "PENDING"
 
@@ -219,10 +222,10 @@ func (s *KesehatanService) ProcessManualUpdate(nik string, incomingData models.R
 			fieldName == "UpdatedAt" || fieldName == "TrustScore" || fieldName == "ReferenceDate" || fieldName == "CreatedAt" {
 			continue
 		}
-		
+
 		incomingField := valIncoming.Field(i)
 		newField := valNew.Field(i)
-		
+
 		if newField.CanSet() && !incomingField.IsZero() {
 			newField.Set(incomingField)
 		}
@@ -242,7 +245,9 @@ func (s *KesehatanService) ProcessAuditDecision(nikList []string, verdict int) (
 
 	if text, exists := AuditMap[verdict]; exists {
 		verdictText = text
-		if verdict == 1 { bonus = 20.0 }
+		if verdict == 1 {
+			bonus = 20.0
+		}
 	} else {
 		return "", fmt.Errorf("Verdict tidak valid. Gunakan 1 (VALID) atau 2 (INVALID)")
 	}
