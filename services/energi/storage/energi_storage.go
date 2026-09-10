@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"energi/models"
+
 	"gorm.io/gorm"
 )
 
@@ -39,13 +40,13 @@ func (s *EnergiStorage) GetBySubmission(subID string) ([]models.RekamEnergi, err
 
 func (s *EnergiStorage) GetFetchWithFields(fields []string) ([]models.RekamEnergi, error) {
 	var results []models.RekamEnergi
-	
+
 	// Cari absolute ID tertinggi dari tiap NoKK
 	subQuery := s.DB.Model(&models.RekamEnergi{}).
 		Select("MAX(id)").
 		Where("is_deleted = ?", false).
 		Group("nomor_kartu_keluarga")
-	
+
 	// Filter ID tertinggi tersebut
 	query := s.DB.Where("id IN (?)", subQuery)
 
@@ -74,7 +75,8 @@ func (s *EnergiStorage) SoftDelete(identifier string) error {
 	// Pencarian menggunakan NoKK (16 digit)
 	if len(cleanID) == 16 {
 		return s.DB.Model(&models.RekamEnergi{}).
-			Where("nomor_kartu_keluarga = ?", cleanID). 
+			Where("nomor_kartu_keluarga = ?", cleanID).
+			Update("is_deleted", true).Error
 	}
 
 	// Jika bukan 16 digit, gunakan ID absolut
@@ -86,7 +88,7 @@ func (s *EnergiStorage) SoftDelete(identifier string) error {
 // GetAuditSamples mengambil sampel data versi tertinggi yang berstatus PENDING
 func (s *EnergiStorage) GetAuditSamples(limit int) ([]models.RekamEnergi, error) {
 	var results []models.RekamEnergi
-	
+
 	query := `
 		SELECT k.* FROM rekam_energis k
 		INNER JOIN (
@@ -101,7 +103,7 @@ func (s *EnergiStorage) GetAuditSamples(limit int) ([]models.RekamEnergi, error)
 		ORDER BY RANDOM()
 		LIMIT ?
 	`
-	
+
 	err := s.DB.Raw(query, limit).Scan(&results).Error
 	return results, err
 }
