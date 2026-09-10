@@ -17,11 +17,9 @@ func main() {
 	// 1. Inisialisasi Koneksi Database (Domain kesehatan)
 	db := database.InitDB()
 
-	// AUTOMIGRATE: Pastikan nama struct benar (K-nya besar)
 	db.AutoMigrate(&models.Schema{}, &models.RekamKesehatan{})
 
-	// 2. Inisialisasi Layer Architecture (Dependency Injection)
-	// Gunakan K-besar (Exported) agar bisa diakses antar folder
+	// 2. Inisialisasi Layer Architecture 
 	kesehatanRepo := storage.KesehatanStorage{DB: db}
 	kesehatanService := app.KesehatanService{Storage: kesehatanRepo}
 	kesehatanHandler := handler.KesehatanHandler{Service: kesehatanService}
