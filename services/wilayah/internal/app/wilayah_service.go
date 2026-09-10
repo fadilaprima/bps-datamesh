@@ -120,27 +120,44 @@ func (s *WilayahService) ProcessIngestion(w models.MasterWilayah) (string, error
 // ==========================================
 // 3. UPDATE & AUDIT LOGIC
 // ==========================================
-func (s *WilayahService) ProcessManualUpdate(kodeDesa string, newData models.MasterWilayah) (int, error) {
-	oldData, err := s.Storage.GetLatestByKode(kodeDesa)
+func (s *WilayahService) ProcessManualUpdate(kodeDesa string, incomingData models.MasterWilayah) (int, error) {
+	oldData, err := s.Storage.GetLatestByKode(kodeDesa) 
 	if err != nil || oldData == nil {
 		return 0, fmt.Errorf("data asli tidak ditemukan")
 	}
 
-	// LOGIKA RESET SCD TYPE 2
-	newData.ID = 0
-	newData.Version = oldData.Version + 1
-	newData.AuditStatus = "PENDING"
-	newData.UpdatedAt = time.Now()
+	newRecord := *oldData
+	newRecord.ID = 0
+	newRecord.Version = oldData.Version + 1
+	newRecord.AuditStatus = "PENDING"
+	newRecord.UpdatedAt = time.Now()
 
-	// Skor kembali ke base (60 Sistem + 20 Sumber jika Walidata)
-	if newData.IsWaliData {
-		newData.TrustScore = 80.0
-	} else {
-		newData.TrustScore = 60.0
+	newRecord.TrustScore = oldData.TrustScore - 20.0
+	if newRecord.TrustScore < 0 { newRecord.TrustScore = 0 }
+
+	// TIMPA PARSIAL OTOMATIS
+	valIncoming := reflect.ValueOf(incomingData)
+	valNew := reflect.ValueOf(&newRecord).Elem()
+
+	for i := 0; i < valIncoming.NumField(); i++ {
+		fieldName := valIncoming.Type().Field(i).Name
+		if fieldName == "ID" || fieldName == "Version" || fieldName == "AuditStatus" || 
+		   fieldName == "UpdatedAt" || fieldName == "TrustScore" || fieldName == "ReferenceDate" || fieldName == "CreatedAt" {
+			continue
+		}
+		incomingField := valIncoming.Field(i)
+		newField := valNew.Field(i)
+		if newField.CanSet() && !incomingField.IsZero() {
+			newField.Set(incomingField)
+		}
 	}
 
-	errCreate := s.Storage.Create(&newData)
-	return newData.Version, errCreate
+	if errCreate := s.Storage.Create(&newRecord); errCreate != nil {
+		return 0, fmt.Errorf("gagal menyimpan data: %v", errCreate)
+	}
+
+	_ = s.Storage.SoftDelete(fmt.Sprintf("%d", oldData.ID))
+	return newRecord.Version, nil
 }
 
 func (s *WilayahService) ProcessAuditDecision(kodeDesa []string, verdict int) (string, error) {

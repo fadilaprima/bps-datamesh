@@ -71,13 +71,13 @@ func (s *EnergiStorage) GetDetailWithFields(noKK string, fields []string) (*mode
 func (s *EnergiStorage) SoftDelete(identifier string) error {
 	cleanID := strings.TrimSpace(identifier)
 
+	// Pencarian menggunakan NoKK (16 digit)
 	if len(cleanID) == 16 {
 		return s.DB.Model(&models.RekamEnergi{}).
-			Where("nomor_kartu_keluarga = ?", cleanID).
-			Update("is_deleted", true).Error
+			Where("nomor_kartu_keluarga = ?", cleanID). 
 	}
-	
-	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
+
+	// Jika bukan 16 digit, gunakan ID absolut
 	return s.DB.Model(&models.RekamEnergi{}).
 		Where("id = ?", cleanID).
 		Update("is_deleted", true).Error

@@ -260,13 +260,25 @@ func (h *PendidikanHandler) GetDatasetDetail(c *fiber.Ctx) error {
 }
 
 func (h *PendidikanHandler) UpdateDataset(c *fiber.Ctx) error {
-	var payload models.RiwayatPendidikan
+	var payload struct {
+		Data           models.RiwayatPendidikan `json:"data"` 
+		CorrectionNote string                   `json:"correction_note"`
+	}
+
 	if err := c.BodyParser(&payload); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
 	}
-	version, err := h.Service.ProcessManualUpdate(c.Params("nik"), payload)
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
-	return c.JSON(fiber.Map{"message": "Versi baru dibuat, status kembali PENDING", "version": version})
+
+	version, err := h.Service.ProcessManualUpdate(c.Params("nik"), payload.Data)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Versi baru dibuat, status kembali PENDING",
+		"version": version,
+		"note":    payload.CorrectionNote,
+	})
 }
 
 func (h *PendidikanHandler) SoftDeleteDataset(c *fiber.Ctx) error {
@@ -275,10 +287,15 @@ func (h *PendidikanHandler) SoftDeleteDataset(c *fiber.Ctx) error {
 		identifier = c.Params("id")
 	}
 
-	if err := h.Service.Storage.SoftDelete(identifier); err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Gagal nonaktifkan data"})
+	if identifier == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Parameter NIK atau ID wajib diisi"})
 	}
-	return c.JSON(fiber.Map{"message": "Data dinonaktifkan (Soft Delete)"})
+
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal menonaktifkan data"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Data berhasil dinonaktifkan (Soft Delete)"})
 }
 
 // ==========================================

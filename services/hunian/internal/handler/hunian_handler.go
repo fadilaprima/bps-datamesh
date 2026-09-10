@@ -270,11 +270,25 @@ func (h *HunianHandler) GetDatasetDetail(c *fiber.Ctx) error {
 }
 
 func (h *HunianHandler) UpdateDataset(c *fiber.Ctx) error {
-	var payload models.RekamHunian
-	if err := c.BodyParser(&payload); err != nil { return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"}) }
-	version, err := h.Service.ProcessManualUpdate(c.Params("nokk"), payload)
-	if err != nil { return c.Status(500).JSON(fiber.Map{"error": err.Error()}) }
-	return c.JSON(fiber.Map{"message": "Versi baru hunian dibuat", "version": version})
+	var payload struct {
+		Data           models.RekamHunian `json:"data"` 
+		CorrectionNote string             `json:"correction_note"`
+	}
+
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
+	}
+
+	version, err := h.Service.ProcessManualUpdate(c.Params("nokk"), payload.Data)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Versi baru dibuat, status kembali PENDING",
+		"version": version,
+		"note":    payload.CorrectionNote,
+	})
 }
 
 func (h *HunianHandler) SoftDeleteDataset(c *fiber.Ctx) error {
@@ -283,10 +297,15 @@ func (h *HunianHandler) SoftDeleteDataset(c *fiber.Ctx) error {
 		identifier = c.Params("id")
 	}
 
-	if err := h.Service.Storage.SoftDelete(identifier); err != nil { 
-		return c.Status(500).JSON(fiber.Map{"error": "Gagal dinonaktifkan"}) 
+	if identifier == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Parameter NoKK atau ID wajib diisi"})
 	}
-	return c.JSON(fiber.Map{"message": "Data hunian dinonaktifkan"})
+
+	if err := h.Service.Storage.SoftDelete(identifier); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal menonaktifkan data"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Data berhasil dinonaktifkan (Soft Delete)"})
 }
 
 // ==========================================

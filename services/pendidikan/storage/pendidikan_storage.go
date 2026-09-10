@@ -41,14 +41,15 @@ func (s *PendidikanStorage) GetBySubmission(subID string) ([]models.RiwayatPendi
 func (s *PendidikanStorage) SoftDelete(identifier string) error {
 	cleanID := strings.TrimSpace(identifier)
 
+	// Pencarian menggunakan NIK (16 digit)
 	if len(cleanID) == 16 {
-		return s.DB.Model(&models.RiwayatPendidikan{}).
+		return s.DB.Model(&models.RiwayatPendidikan{}). 
 			Where("nomor_induk_kependudukan = ?", cleanID).
 			Update("is_deleted", true).Error
 	}
-	
-	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
-	return s.DB.Model(&models.RiwayatPendidikan{}).
+
+	// Jika bukan 16 digit, gunakan ID absolut
+	return s.DB.Model(&models.RiwayatPendidikan{}). 
 		Where("id = ?", cleanID).
 		Update("is_deleted", true).Error
 }

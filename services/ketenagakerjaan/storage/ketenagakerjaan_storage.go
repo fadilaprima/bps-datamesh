@@ -65,13 +65,14 @@ func (s *KetenagakerjaanStorage) GetDetailWithFields(nik string, fields []string
 func (s *KetenagakerjaanStorage) SoftDelete(identifier string) error {
 	cleanID := strings.TrimSpace(identifier)
 
+	// Pencarian menggunakan NIK (16 digit)
 	if len(cleanID) == 16 {
 		return s.DB.Model(&models.RekamKetenagakerjaan{}).
 			Where("nomor_induk_kependudukan = ?", cleanID).
 			Update("is_deleted", true).Error
 	}
-	
-	// Jika bukan 16 digit, eksekusi hapus berdasarkan ID absolut
+
+	// Jika bukan 16 digit, gunakan ID absolut
 	return s.DB.Model(&models.RekamKetenagakerjaan{}).
 		Where("id = ?", cleanID).
 		Update("is_deleted", true).Error

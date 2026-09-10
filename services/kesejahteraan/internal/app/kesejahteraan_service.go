@@ -214,25 +214,48 @@ func (s *KesejahteraanService) ProcessIngestion(k models.RekamKesejahteraan) (st
 // ==========================================
 // 5. UPDATE & AUDIT LOGIC
 // ==========================================
-func (s *KesejahteraanService) ProcessManualUpdate(nokk string, newData models.RekamKesejahteraan) (int, error) {
+func (s *KesejahteraanService) ProcessManualUpdate(nokk string, incomingData models.RekamKesejahteraan) (int, error) {
 	oldData, err := s.Storage.GetLatestByNoKK(nokk)
 	if err != nil || oldData == nil {
 		return 0, fmt.Errorf("data asli tidak ditemukan")
 	}
 
-	newData.ID = 0
-	newData.Version = oldData.Version + 1
-	newData.AuditStatus = "PENDING"
-	newData.UpdatedAt = time.Now()
+	newRecord := *oldData
+	newRecord.ID = 0
+	newRecord.Version = oldData.Version + 1
+	newRecord.AuditStatus = "PENDING"
+	newRecord.UpdatedAt = time.Now()
 
-	if newData.IsWaliData {
-		newData.TrustScore = 80.0
-	} else {
-		newData.TrustScore = 60.0
+	newRecord.TrustScore = oldData.TrustScore - 20.0
+	if newRecord.TrustScore < 0 {
+		newRecord.TrustScore = 0
 	}
 
-	errCreate := s.Storage.Create(&newData)
-	return newData.Version, errCreate
+	// TIMPA PARSIAL OTOMATIS
+	valIncoming := reflect.ValueOf(incomingData)
+	valNew := reflect.ValueOf(&newRecord).Elem()
+
+	for i := 0; i < valIncoming.NumField(); i++ {
+		fieldName := valIncoming.Type().Field(i).Name
+		if fieldName == "ID" || fieldName == "Version" || fieldName == "AuditStatus" ||
+			fieldName == "UpdatedAt" || fieldName == "TrustScore" || fieldName == "ReferenceDate" || fieldName == "CreatedAt" {
+			continue
+		}
+		
+		incomingField := valIncoming.Field(i)
+		newField := valNew.Field(i)
+		
+		if newField.CanSet() && !incomingField.IsZero() {
+			newField.Set(incomingField)
+		}
+	}
+
+	if errCreate := s.Storage.Create(&newRecord); errCreate != nil {
+		return 0, fmt.Errorf("gagal menyimpan data: %v", errCreate)
+	}
+
+	_ = s.Storage.SoftDelete(fmt.Sprintf("%d", oldData.ID))
+	return newRecord.Version, nil
 }
 
 func (s *KesejahteraanService) ProcessAuditDecision(nokkList []string, verdict int) (string, error) {

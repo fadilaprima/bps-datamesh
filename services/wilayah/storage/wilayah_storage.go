@@ -1,8 +1,8 @@
 package storage
 
 import (
+	"strings"
 	"wilayah/models"
-
 	"gorm.io/gorm"
 )
 
@@ -62,10 +62,18 @@ func (s *WilayahStorage) GetDetailWithFields(kode string, fields []string) (*mod
 }
 
 // 3. MAINTENANCE (LIFECYCLE MANAGEMENT)
-// SoftDelete menandai data wilayah sebagai terhapus tanpa menghilangkan dari database
-func (s *WilayahStorage) SoftDelete(id string) error {
+func (s *WilayahStorage) SoftDelete(identifier string) error {
+	cleanID := strings.TrimSpace(identifier)
+
+	if len(cleanID) == 10 { 
+		return s.DB.Model(&models.MasterWilayah{}).
+			Where("kode_kelurahan_desa = ?", cleanID). 
+			Update("is_deleted", true).Error
+	}
+	
+	// Jika bukan 10 digit, eksekusi menggunakan ID absolut database
 	return s.DB.Model(&models.MasterWilayah{}).
-		Where("id = ?", id).
+		Where("id = ?", cleanID).
 		Update("is_deleted", true).Error
 }
 
