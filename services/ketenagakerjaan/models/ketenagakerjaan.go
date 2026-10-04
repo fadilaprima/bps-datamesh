@@ -9,7 +9,7 @@ type RekamKetenagakerjaan struct {
 	ID                                         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	NIK                                        string    `gorm:"index;column:nomor_induk_kependudukan" json:"nomor_induk_kependudukan" parquet:"name=nomor_induk_kependudukan, type=UTF8"`
 	
-	// Variabel Inti Ketenagakerjaan (Sesuai List Dila)
+	// Variabel Inti Ketenagakerjaan 
 	StatusBekerja                              string    `gorm:"column:status_bekerja" json:"status_bekerja" parquet:"name=status_bekerja, type=UTF8"`
 	LapanganUsahaUtama                         string    `gorm:"column:lapangan_usaha_dari_pekerjaan_utama" json:"lapangan_usaha_dari_pekerjaan_utama" parquet:"name=lapangan_usaha_dari_pekerjaan_utama, type=UTF8"`
 	StatusDalamPekerjaanUtama                  string    `gorm:"column:status_dalam_pekerjaan_utama" json:"status_dalam_pekerjaan_utama" parquet:"name=status_dalam_pekerjaan_utama, type=UTF8"`

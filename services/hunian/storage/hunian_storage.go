@@ -31,12 +31,6 @@ func (s *HunianStorage) CountByNoKK(noKK string) (int64, error) {
 	return count, err
 }
 
-func (s *HunianStorage) GetBySubmission(subID string) ([]models.RekamHunian, error) {
-	var results []models.RekamHunian
-	err := s.DB.Where("source_id = ? AND is_deleted = ?", subID, false).Find(&results).Error
-	return results, err
-}
-
 func (s *HunianStorage) GetFetchWithFields(fields []string) ([]models.RekamHunian, error) {
 	var results []models.RekamHunian
 	

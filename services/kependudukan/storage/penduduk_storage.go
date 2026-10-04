@@ -32,12 +32,6 @@ func (s *PendudukStorage) CountByNIK(nik string) (int64, error) {
 	return count, err
 }
 
-func (s *PendudukStorage) GetBySubmission(sourceID string) ([]models.Penduduk, error) {
-	var results []models.Penduduk
-	err := s.DB.Where("source_id = ? AND is_deleted = ?", sourceID, false).Find(&results).Error
-	return results, err
-}
-
 // SoftDelete bisa menerima NIK (16 digit) untuk hapus semua versi, atau ID spesifik
 func (s *PendudukStorage) SoftDelete(identifier string) error {
 	cleanID := strings.TrimSpace(identifier)

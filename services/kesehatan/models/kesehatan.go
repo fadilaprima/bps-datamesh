@@ -10,7 +10,7 @@ type RekamKesehatan struct {
 	ID                        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	NIK                       string    `gorm:"index;column:nomor_induk_kependudukan" json:"nomor_induk_kependudukan" parquet:"name=nomor_induk_kependudukan, type=UTF8"`
 	
-	// Variabel Observasi Kesehatan (Sesuai List Kamu)
+	// Variabel Observasi Kesehatan 
 	PbiNas                    string    `gorm:"column:pbi_nas" json:"pbi_nas" parquet:"name=pbi_nas, type=UTF8"`
 	PbiPemda                  string    `gorm:"column:pbi_pemda" json:"pbi_pemda" parquet:"name=pbi_pemda, type=UTF8"`
 	KondisiGizi               string    `gorm:"column:kondisi_gizi" json:"kondisi_gizi" parquet:"name=kondisi_gizi, type=UTF8"`
@@ -26,10 +26,9 @@ type RekamKesehatan struct {
 	KesedihanDepresi          string    `gorm:"column:kesedihan_depresi" json:"kesedihan_depresi" parquet:"name=kesedihan_depresi, type=UTF8"`
 	PenyakitKronis            string    `gorm:"column:penyakit_kronis" json:"penyakit_kronis" parquet:"name=penyakit_kronis, type=UTF8"`
 
-	// Variabel Sakti untuk Data Tak Terstruktur (Jangan Sampai Kelewat!)
 	AdditionalInfo            datatypes.JSON `gorm:"column:additional_info" json:"additional_info"`
 
-	// Metadata Versioning & Data Mesh Lifecycle (Identik dengan Pendidikan)
+	// Metadata Versioning & Data Mesh Lifecycle 
 	Version       int       `gorm:"column:version" json:"version"`
 	SourceID      string    `gorm:"column:source_id" json:"source_id" parquet:"name=source_id, type=UTF8"`
 	IsWaliData    bool      `gorm:"column:is_wali_data" json:"is_wali_data" parquet:"name=is_wali_data, type=BOOLEAN"`

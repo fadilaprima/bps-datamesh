@@ -116,7 +116,7 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 				key := strings.ToLower(headers[idx])
 				found := false
 
-				// Alias mapping cerdas
+				// Mapping
 				if key == "no_kk" || key == "nkk" { key = "nomor_kartu_keluarga" }
 				if key == "id_pelanggan" || key == "id_pln" { key = "id_pelanggan_pln" }
 				if key == "daya_listrik" { key = "daya_terpasang" }
@@ -154,7 +154,7 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 		io.Copy(fw, file)
 		fw.Close()
 
-		// PERBAIKAN: Mencegah storage leak
+		// Mencegah storage leak
 		defer os.Remove(tmpPath)
 
 		fr, _ := local.NewLocalFileReader(tmpPath)
@@ -174,7 +174,6 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 			return c.Status(400).JSON(fiber.Map{"error": "Format JSON gagal diparsing"})
 		}
 		
-		// PERBAIKAN: Paksa set ReferenceDate agar data tidak ditolak karena "usang"
 		for i := range dataList {
 			if dataList[i].ReferenceDate.IsZero() {
 				dataList[i].ReferenceDate = refDate
@@ -199,7 +198,7 @@ func (h *EnergiHandler) IngestData(c *fiber.Ctx) error {
 			continue
 		}
 
-		// [HARD FAIL] Jika tertangkap error logika, status gagal dan tampilkan pesan ke user
+		// Jika tertangkap error logika, status gagal dan tampilkan pesan ke user
 		if _, err := h.Service.ProcessIngestion(dataList[i]); err != nil {
 			fail++
 			errorLogs = append(errorLogs, fmt.Sprintf("NoKK %s: %v", dataList[i].NoKK, err))
@@ -287,7 +286,7 @@ func (h *EnergiHandler) UpdateDataset(c *fiber.Ctx) error {
 	})
 }
 
-func (h *EnergiHandler) SoftDeleteDataset(c *fiber.Ctx) error {
+func (h *EnergiHandler) SoftDeleteDataset(c *fiber.Ctx) error { 
 	identifier := c.Params("nokk")
 	if identifier == "" {
 		identifier = c.Params("id")

@@ -9,7 +9,7 @@ type RekamHunian struct {
 	ID                        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	NoKK                      string    `gorm:"index;column:nomor_kartu_keluarga" json:"nomor_kartu_keluarga" parquet:"name=nomor_kartu_keluarga, type=UTF8"`
 	
-	// Variabel Observasi Hunian (Sesuai List Dila)
+	// Variabel Observasi Hunian 
 	StatusKepemilikan         string    `gorm:"column:status_kepemilikan_rumah" json:"status_kepemilikan_rumah" parquet:"name=status_kepemilikan_rumah, type=UTF8"`
 	JenisLantai               string    `gorm:"column:jenis_lantai_terluas" json:"jenis_lantai_terluas" parquet:"name=jenis_lantai_terluas, type=UTF8"`
 	LuasLantai                int       `gorm:"column:luas_lantai" json:"luas_lantai" parquet:"name=luas_lantai, type=INT32"`
@@ -21,7 +21,7 @@ type RekamHunian struct {
 	JenisKloset               string    `gorm:"column:jenis_kloset" json:"jenis_kloset" parquet:"name=jenis_kloset, type=UTF8"`
 	PembuanganTinja           string    `gorm:"column:pembuangan_akhir_tinja" json:"pembuangan_akhir_tinja" parquet:"name=pembuangan_akhir_tinja, type=UTF8"`
 
-	// Variabel Sakti & Metadata (Wajib Identik)
+	// Variabel Sakti & Metadata 
 	AdditionalInfo datatypes.JSON `gorm:"column:additional_info" json:"additional_info"`
 	Version        int            `gorm:"column:version" json:"version"`
 	SourceID       string         `gorm:"column:source_id" json:"source_id" parquet:"name=source_id, type=UTF8"`

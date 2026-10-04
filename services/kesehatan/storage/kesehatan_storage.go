@@ -32,12 +32,6 @@ func (s *KesehatanStorage) CountByNIK(nik string) (int64, error) {
 	return count, err
 }
 
-func (s *KesehatanStorage) GetBySubmission(subID string) ([]models.RekamKesehatan, error) {
-	var results []models.RekamKesehatan
-	err := s.DB.Where("source_id = ? AND is_deleted = ?", subID, false).Find(&results).Error
-	return results, err
-}
-
 func (s *KesehatanStorage) GetFetchWithFields(fields []string) ([]models.RekamKesehatan, error) {
 	var results []models.RekamKesehatan
 

@@ -10,7 +10,7 @@ type RekamKesejahteraan struct {
 	// Kunci Logis (No. KK)
 	NoKK                            string         `gorm:"index;column:nomor_kartu_keluarga" json:"nomor_kartu_keluarga" parquet:"name=nomor_kartu_keluarga, type=UTF8"`
 	
-	// Variabel Observasi (INT untuk skor/jumlah, VARCHAR untuk kode)
+	// Variabel Observasi 
 	DesilNasional                   int            `gorm:"column:desil_nasional" json:"desil_nasional" parquet:"name=desil_nasional, type=INT32"`
 	BahanBakarMemasak               string         `gorm:"column:bahan_bakar_utama_memasak" json:"bahan_bakar_utama_memasak" parquet:"name=bahan_bakar_utama_memasak, type=UTF8"`
 	KepemilikanAset                 int            `gorm:"column:kepemilikan_aset" json:"kepemilikan_aset" parquet:"name=kepemilikan_aset, type=INT32"`

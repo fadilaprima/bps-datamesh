@@ -336,7 +336,6 @@ paths:
         '404':
           description: |
             Not Found.
-            Catatan: Secara natural dikembalikan oleh router GoFiber jika client melakukan request ke `/api/v1/domains/audit/samples` tanpa menyisipkan nama parameter `{domain}` (seperti `/penduduk/`).
           content:
             application/json:
               schema:
@@ -479,6 +478,116 @@ components:
         version:
           type: integer
           example: 2
+
+    #Stitching
+    /api/v1/social-economy/datasets:
+    get:
+      summary: Get all stitched datasets
+      description: Mengambil seluruh dataset sosial ekonomi yang telah dijahit (stitched) dari 8 domain data BPS dengan dukungan filter variabel dinamis.
+      tags:
+        - Social Economy (Core Aggregator)
+      parameters:
+        - name: fields
+          in: query
+          description: Daftar variabel yang ingin difilter (pisahkan dengan koma)
+          required: false
+          schema:
+            type: string
+            example: "nomor_induk_kependudukan,nama_lengkap,status_kesehatan"
+      responses:
+        '200':
+          description: Berhasil mengambil seluruh dataset terpadu
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        '500':
+          description: Gagal mengambil basis data kependudukan utama
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/social-economy/datasets/{nik}:
+    get:
+      summary: Get stitched dataset by NIK
+      description: Mengambil profil terpadu spesifik berdasarkan NIK dengan menjahit data lintas domain (kependudukan, kesehatan, pendidikan, dll).
+      tags:
+        - Social Economy (Core Aggregator)
+      parameters:
+        - name: nik
+          in: path
+          required: true
+          description: Nomor Induk Kependudukan (NIK)
+          schema:
+            type: string
+            example: "3518012304950001"
+        - name: fields
+          in: query
+          description: Daftar variabel yang ingin difilter (pisahkan dengan koma)
+          required: false
+          schema:
+            type: string
+            example: "nomor_induk_kependudukan,nama_lengkap,penyakit_menular"
+      responses:
+        '200':
+          description: Berhasil menemukan profil terpadu NIK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          description: NIK tidak ditemukan di basis data kependudukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/social-economy/registry:
+    get:
+      summary: Get Data Mesh registry status
+      description: Menampilkan status Mesh dan seluruh domain data BPS yang sedang terhubung.
+      tags:
+        - Data Mesh Governance
+      responses:
+        '200':
+          description: Daftar registry domain berhasil ditarik
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeshRegistryResponse'
+    post:
+      summary: Register new domain to Data Mesh
+      description: Mendaftarkan domain data baru ke dalam registry Data Mesh secara dinamis.
+      tags:
+        - Data Mesh Governance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DomainInfo'
+      responses:
+        '201':
+          description: Domain baru berhasil didaftarkan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Domain Ketenagakerjaan berhasil didaftarkan ke Mesh"
+        '400':
+          description: Format payload domain tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     # BASE DATASET (Diwariskan ke Semua Domain DTSEN)
     BaseDataset:

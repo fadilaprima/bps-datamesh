@@ -39,7 +39,7 @@ var AuditMap = map[int]string{
 }
 
 // ==========================================
-// 1. FUNGSI VALIDASI INTERNAL (HARD FAIL)
+// 1. FUNGSI VALIDASI INTERNAL
 // ==========================================
 func (s *EnergiService) ValidateInternalEnergi(k *models.RekamEnergi) error {
 	if strings.TrimSpace(k.IDPelangganPLN) != "" && strings.TrimSpace(k.DayaTerpasang) == "" {
@@ -85,7 +85,7 @@ func (s *EnergiService) ValidateCrossDomainAPI(k *models.RekamEnergi) error {
 }
 
 // ==========================================
-// 3. METADATA VALIDATION (HARD FAIL)
+// 3. METADATA VALIDATION 
 // ==========================================
 func (s *EnergiService) ValidateEnergiMetadata(k models.RekamEnergi, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}

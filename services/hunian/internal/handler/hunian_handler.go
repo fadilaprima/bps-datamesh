@@ -116,7 +116,7 @@ func (h *HunianHandler) IngestData(c *fiber.Ctx) error {
 				key := strings.ToLower(headers[idx])
 				found := false
 
-				// Alias cerdas dari kodingan asli
+				
 				if key == "no_kk" || key == "nkk" { key = "nomor_kartu_keluarga" }
 				if key == "status_kepemilikan" { key = "status_kepemilikan_rumah" }
 				if key == "jenis_lantai" { key = "jenis_lantai_terluas" }

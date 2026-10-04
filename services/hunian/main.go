@@ -71,7 +71,7 @@ func main() {
 		governance.Post("/audit/decision", hunianHandler.SubmitAuditDecision)
 	}
 
-	// 5. Run Server pada Port 8087 (8086 sudah dipakai Kesejahteraan)
+	// 5. Run Server pada Port 8087 
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN HUNIAN RUNNING")
 	fmt.Println(" Port: 8087")

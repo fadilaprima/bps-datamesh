@@ -31,12 +31,6 @@ func (s *KesejahteraanStorage) CountByNoKK(noKK string) (int64, error) {
 	return count, err
 }
 
-func (s *KesejahteraanStorage) GetBySubmission(subID string) ([]models.RekamKesejahteraan, error) {
-	var results []models.RekamKesejahteraan
-	err := s.DB.Where("source_id = ? AND is_deleted = ?", subID, false).Find(&results).Error
-	return results, err
-}
-
 func (s *KesejahteraanStorage) GetFetchWithFields(fields []string) ([]models.RekamKesejahteraan, error) {
 	var results []models.RekamKesejahteraan
 	

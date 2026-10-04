@@ -72,7 +72,7 @@ func main() {
 		governance.Post("/audit/decision", energiHandler.SubmitAuditDecision)
 	}
 
-	// 5. Run Server pada Port 8088 (8087 sudah dipakai Hunian)
+	// 5. Run Server pada Port 8088 
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN ENERGI RUNNING")
 	fmt.Println(" Port: 8088")

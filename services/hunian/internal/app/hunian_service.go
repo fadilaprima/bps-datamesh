@@ -39,7 +39,7 @@ var AuditMap = map[int]string{
 }
 
 // ==========================================
-// 1. FUNGSI VALIDASI INTERNAL (HARD FAIL)
+// 1. FUNGSI VALIDASI INTERNAL 
 // ==========================================
 func (s *HunianService) ValidateInternalHunian(k *models.RekamHunian) error {
 	if k.LuasLantai < 0 || k.LuasLantai > 999 {
@@ -118,7 +118,7 @@ func (s *HunianService) ValidateCrossDomainAPI(k *models.RekamHunian) error {
 }
 
 // ==========================================
-// 3. METADATA VALIDATION (HARD FAIL)
+// 3. METADATA VALIDATION 
 // ==========================================
 func (s *HunianService) ValidateHunianMetadata(k models.RekamHunian, definition datatypes.JSON) (bool, string) {
 	var schemaMap map[string]interface{}

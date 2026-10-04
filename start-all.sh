@@ -11,7 +11,7 @@ for s in "${SERVICES[@]}"; do
     echo "[+] Menyalakan service: $s ..."
     cd ~/bps-datamesh/services/$s
 
-    # Otomatis salin db.env jika foldernya butuh .env
+    # salin db.env 
     if [ -f "../../db.env" ]; then
         cp ../../db.env .env
         set -a
@@ -19,7 +19,7 @@ for s in "${SERVICES[@]}"; do
         set +a
     fi
 
-    # Jalankan di background abadi pakai nohup
+    # Jalan di background
     nohup go run main.go > output.log 2>&1 &
 
     cd ~/bps-datamesh

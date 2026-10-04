@@ -35,7 +35,7 @@ func main() {
 	appFiber.Use(recover.New())
 	appFiber.Use(cors.New())
 
-	// --- 4. ROUTING (Domain Kesejahteraan) ---
+	// 4. ROUTING (Domain Kesejahteraan) 
 	api := appFiber.Group("/api/v1/domains/kesejahteraan")
 
 	// A. DATA INGESTION & MONITORING (Fokus NoKK)
@@ -72,7 +72,7 @@ func main() {
 		governance.Post("/audit/decision", kesejahteraanHandler.SubmitAuditDecision)
 	}
 
-	// 5. Run Server pada Port 8086 (Karena 8085 udah dipakai Ketenagakerjaan)
+	// 5. Run Server pada Port 8086 
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN KESEJAHTERAAN RUNNING")
 	fmt.Println(" Port: 8086")

@@ -12,7 +12,7 @@ type Schema struct {
 	Domain     string         `gorm:"index" json:"domain"` // Isinya: "kesehatan"
 	Name       string         `json:"name"`                // Isinya: "riwayat_kesehatan"
 	Version    int            `gorm:"default:1" json:"version"`
-	Definition datatypes.JSON `json:"definition"` // Isinya aturan kolom dinamis
+	Definition datatypes.JSON `json:"definition"` 
 	Status     string         `gorm:"default:'ACTIVE'" json:"status"`
 	CreatedAt  time.Time      `json:"created_at"`
 }

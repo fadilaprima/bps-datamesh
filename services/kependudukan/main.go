@@ -84,7 +84,7 @@ func main() {
 		governance.Post("/audit/decision", pendudukHandler.SubmitAuditDecision)
 	}
 
-	// 5. Run Server pada Port 8081 (Sesuai Master Plan)
+	// 5. Run Server pada Port 8081 
 	fmt.Println("---------------------------------------------------------")
 	fmt.Println(" BPS DATA MESH: DOMAIN KEPENDUDUKAN RUNNING")
 	fmt.Println(" Port: 8081")

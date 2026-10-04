@@ -32,12 +32,6 @@ func (s *EnergiStorage) CountByNoKK(noKK string) (int64, error) {
 	return count, err
 }
 
-func (s *EnergiStorage) GetBySubmission(subID string) ([]models.RekamEnergi, error) {
-	var results []models.RekamEnergi
-	err := s.DB.Where("source_id = ? AND is_deleted = ?", subID, false).Find(&results).Error
-	return results, err
-}
-
 func (s *EnergiStorage) GetFetchWithFields(fields []string) ([]models.RekamEnergi, error) {
 	var results []models.RekamEnergi
 
