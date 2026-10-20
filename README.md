@@ -7,6 +7,35 @@ Dikembangkan sebagai skripsi Program Studi D-IV Komputasi Statistik, Politeknik 
 - **Judul:** Perancangan dan Implementasi Arsitektur Data Mesh Pendekatan Domain-Driven Design pada Microservices (Studi Kasus: DTSEN BPS RI)
 - **Pengembang:** Fadila Prima Rahayu
 
+## Struktur Folder
+
+```
+.
+├── contracts/                 # Kontrak API (OpenAPI 3.0.3)
+│   └── contract_api.yaml
+├── services/                  # Kode artifact: 9 domain data otonom
+│   ├── data-sosial-ekonomi/
+│   ├── energi/
+│   ├── hunian/
+│   ├── kependudukan/
+│   ├── kesehatan/
+│   ├── kesejahteraan/
+│   ├── ketenagakerjaan/
+│   ├── pendidikan/
+│   └── wilayah/
+│       ├── database/          # Koneksi dan skema database
+│       ├── internal/          # Logika bisnis (handler, service, repository)
+│       ├── models/            # Model data
+│       ├── storage/           # Penyimpanan
+│       ├── main.go            # Entry point service
+│       ├── go.mod / go.sum    # Dependensi Go
+│       ├── energi_dummy.csv   # Dataset dummy (data sensitif dimasking)
+│       └── data cek validasi.json
+├── docker-compose.yml         # Orkestrasi seluruh service
+├── start-all.sh               # Skrip menjalankan semua service
+├── .env.example               # Contoh konfigurasi environment
+└── README.md
+```
 
 ## Latar Belakang Singkat
 
